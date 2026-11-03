@@ -34,11 +34,11 @@ nonisolated struct NameConflict: Identifiable, Sendable, Equatable {
     let id = UUID()
     let source: URL
     let existing: URL
-    /// Items of the same batch still to be handled after this one.
+    /// Later items of the same batch whose names clash too.
     let remaining: Int
 }
 
-/// Asks the user about one conflict. `nil` means "keep both" without asking.
+/// Asks the user about one conflict. Operations given no resolver keep both without asking.
 typealias ConflictResolver = (NameConflict) async -> ConflictDecision
 
 /// A copy in progress, for the progress bar.
@@ -71,6 +71,8 @@ nonisolated struct BatchResult: Sendable {
     var error: (any Error)?
     /// File number (inode) of each created copy, keyed by path, to recognize it later.
     var fileNumbers: [String: Int] = [:]
+    /// Existing items moved to the Trash because a finished transfer replaced them.
+    var trashed: [FileTransfer] = []
 }
 
 /// Copies made by one copy action. Undo and redo share it, so undo only trashes items that are
@@ -188,25 +190,24 @@ final class FileActions {
             // Planned inside the queue, so earlier operations' results count as taken names.
             let plan = try await Self.resolvedPlan(urls, into: folder, copying: true, resolver: resolveConflicts)
             try Task.checkCancellation()
-            let replaced = await Self.performTrash(plan.replacing)
             var result = BatchResult()
-            if replaced.error == nil, !plan.transfers.isEmpty {
+            if !plan.transfers.isEmpty {
                 let sizes = await Self.sizes(of: plan.transfers.map(\.from))
                 let progress = TransferProgress(
                     title: Self.copyTitle(plan.transfers, into: folder), totalBytes: sizes.reduce(0, +))
                 self.currentTransfer = progress
                 defer { self.currentTransfer = nil }
-                result = await Self.performCopies(plan.transfers, copier: self.copier, sizes: sizes) { bytes in
+                result = await Self.performCopies(
+                    plan.transfers, replacing: plan.replacing, copier: self.copier, sizes: sizes
+                ) { bytes in
                     Task { @MainActor in progress.completedBytes = bytes }
                 }
             }
-            self.registerAsOneStep(if: !replaced.done.isEmpty || !result.done.isEmpty) {
-                if !replaced.done.isEmpty { self.registerRelocationUndo("Replace", replaced.done) }
-                if !result.done.isEmpty {
-                    self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
-                }
+            self.registerAsOneStep(if: !result.done.isEmpty) {
+                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
+                self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
             }
-            if let error = replaced.error ?? result.error { throw error }
+            if let error = result.error { throw error }
             return result.done.map(\.to)
         }
     }
@@ -221,13 +222,12 @@ final class FileActions {
         return try await serialized {
             let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
             let plan = try await Self.resolvedPlan(sources, into: folder, copying: false, resolver: resolveConflicts)
-            let replaced = await Self.performTrash(plan.replacing)
-            let result = replaced.error == nil ? await Self.performMoves(plan.transfers) : BatchResult()
-            self.registerAsOneStep(if: !replaced.done.isEmpty || !result.done.isEmpty) {
-                if !replaced.done.isEmpty { self.registerRelocationUndo("Replace", replaced.done) }
-                if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
+            let result = await Self.performMoves(plan.transfers, replacing: plan.replacing)
+            self.registerAsOneStep(if: !result.done.isEmpty) {
+                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
+                self.registerRelocationUndo("Move", result.done)
             }
-            if let error = replaced.error ?? result.error { throw error }
+            if let error = result.error { throw error }
             return result.done.map(\.to)
         }
     }
@@ -428,7 +428,7 @@ final class FileActions {
 
     /// `sizes` (bytes per item, same order as `plan`) and `report` drive the progress bar.
     @concurrent private nonisolated static func performCopies(
-        _ plan: [FileTransfer], copier: Copier, sizes: [Int64] = [],
+        _ plan: [FileTransfer], replacing: [URL?] = [], copier: Copier, sizes: [Int64] = [],
         report: (@Sendable (Int64) -> Void)? = nil
     ) async -> BatchResult {
         let fileManager = FileManager.default
@@ -439,6 +439,20 @@ final class FileActions {
                 result.error = CancellationError()
                 break
             }
+            // Replace one item at a time, so a failure never leaves earlier replaced items gone.
+            let existing = index < replacing.count ? replacing[index] : nil
+            var trashed: FileTransfer?
+            if let existing {
+                do {
+                    trashed = try trashItem(existing)
+                } catch {
+                    result.error = error
+                    break
+                }
+            }
+            func restoreReplaced() {
+                if let trashed { try? fileManager.moveItem(at: trashed.to, to: trashed.from) }
+            }
             // Never write over, or clean up, something that is already there.
             if fileManager.fileExists(atPath: transfer.to.path) {
                 result.error = CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: transfer.to.path])
@@ -448,6 +462,7 @@ final class FileActions {
                 let offset = base
                 try copier(transfer.from, transfer.to, { report?(offset + $0) }, { Task.isCancelled })
                 result.done.append(transfer)
+                if let trashed { result.trashed.append(trashed) }
                 if let number = fileNumber(of: transfer.to) { result.fileNumbers[transfer.to.path] = number }
                 base += index < sizes.count ? sizes[index] : 0
                 report?(base)
@@ -457,6 +472,7 @@ final class FileActions {
                 if !isAlreadyExists(error), fileManager.fileExists(atPath: transfer.to.path) {
                     try? fileManager.removeItem(at: transfer.to)
                 }
+                restoreReplaced()
                 result.error = Task.isCancelled || error is CancellationError ? CancellationError() : error
                 break
             }
@@ -510,19 +526,33 @@ final class FileActions {
 
     /// Undo/redo passes `stopOnError: false` to put back as much as possible.
     @concurrent private nonisolated static func performMoves(
-        _ plan: [FileTransfer], stopOnError: Bool = true
+        _ plan: [FileTransfer], replacing: [URL?] = [], stopOnError: Bool = true
     ) async -> BatchResult {
+        let fileManager = FileManager.default
         var result = BatchResult()
-        for transfer in plan {
+        for (index, transfer) in plan.enumerated() {
+            let existing = index < replacing.count ? replacing[index] : nil
+            var trashed: FileTransfer?
             do {
-                try FileManager.default.moveItem(at: transfer.from, to: transfer.to)
+                if let existing { trashed = try trashItem(existing) }
+                try fileManager.moveItem(at: transfer.from, to: transfer.to)
                 result.done.append(transfer)
+                if let trashed { result.trashed.append(trashed) }
             } catch {
+                // Put back the item this move was going to replace.
+                if let trashed { try? fileManager.moveItem(at: trashed.to, to: trashed.from) }
                 result.error = error
                 if stopOnError { break }
             }
         }
         return result
+    }
+
+    /// Moves one item to the Trash and returns where it went.
+    private nonisolated static func trashItem(_ url: URL) throws -> FileTransfer {
+        var resulting: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+        return FileTransfer(from: url, to: (resulting as URL?) ?? url)
     }
 
     @concurrent private nonisolated static func performTrash(_ urls: [URL]) async -> BatchResult {
@@ -565,29 +595,44 @@ final class FileActions {
     // MARK: - Naming
 
     /// Destinations for a batch, asking `resolver` about each name clash in another folder.
-    /// Returns the transfers to perform and the existing items they replace.
+    /// Returns the transfers and, per transfer, the existing item it replaces (if any).
     static func resolvedPlan(
         _ urls: [URL], into folder: URL, copying: Bool, resolver: ConflictResolver?
-    ) async throws -> (transfers: [FileTransfer], replacing: [URL]) {
+    ) async throws -> (transfers: [FileTransfer], replacing: [URL?]) {
+        func normalized(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased() }
+        let batchPaths = Set(urls.map(normalized))
+        /// The item already on disk under `name` (in its real letter case), unless it is
+        /// itself one of the items being transferred.
+        func existingItem(named name: String) -> URL? {
+            let candidate = folder.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: candidate.path),
+                  !batchPaths.contains(normalized(candidate)) else { return nil }
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            let realName = entries.first { $0.lowercased() == name.lowercased() } ?? name
+            return folder.appendingPathComponent(realName)
+        }
+        let clashes: [URL?] = urls.map { source in
+            isSameFolder(source.deletingLastPathComponent(), folder) ? nil : existingItem(named: source.lastPathComponent)
+        }
+
         var reserved: Set<String> = []
         var transfers: [FileTransfer] = []
-        var replacing: [URL] = []
+        var replacing: [URL?] = []
         var remembered: ConflictResolution?
 
         for (index, source) in urls.enumerated() {
             let sameFolder = isSameFolder(source.deletingLastPathComponent(), folder)
-            let candidate = folder.appendingPathComponent(source.lastPathComponent)
-            let key = candidate.lastPathComponent.lowercased()
-            let clashesInBatch = reserved.contains(key)
-            let clashesOnDisk = FileManager.default.fileExists(atPath: candidate.path)
+            let key = source.lastPathComponent.lowercased()
 
             var resolution = ConflictResolution.keepBoth
-            if !sameFolder, clashesOnDisk, !clashesInBatch, let resolver {
+            var existing: URL?
+            if let clash = clashes[index], !reserved.contains(key), let resolver {
+                existing = clash
                 if let remembered {
                     resolution = remembered
                 } else {
-                    let decision = await resolver(
-                        NameConflict(source: source, existing: candidate, remaining: urls.count - index - 1))
+                    let later = clashes[(index + 1)...].compactMap { $0 }.count
+                    let decision = await resolver(NameConflict(source: source, existing: clash, remaining: later))
                     resolution = decision.resolution
                     if decision.applyToAll { remembered = decision.resolution }
                 }
@@ -598,16 +643,18 @@ final class FileActions {
             case .skip:
                 continue
             case .replace:
-                let existingPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+                guard let existing else { continue }
+                let existingPath = existing.resolvingSymlinksInPath().standardizedFileURL.path
                 let sourcePath = source.resolvingSymlinksInPath().standardizedFileURL.path
                 if sourcePath.hasPrefix(existingPath + "/") {
-                    throw FileActionError.cannotReplaceContainingFolder(candidate.lastPathComponent)
+                    throw FileActionError.cannotReplaceContainingFolder(existing.lastPathComponent)
                 }
-                replacing.append(candidate)
-                destination = candidate
+                destination = existing
+                replacing.append(existing)
             case .keepBoth:
                 destination = uniqueDestination(
                     for: source, in: folder, copyStyle: copying && sameFolder, reserved: reserved)
+                replacing.append(nil)
             }
             reserved.insert(destination.lastPathComponent.lowercased())
             transfers.append(FileTransfer(from: source, to: destination))

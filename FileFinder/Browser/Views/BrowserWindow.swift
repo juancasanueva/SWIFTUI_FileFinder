@@ -41,6 +41,7 @@ struct BrowserWindow: View {
         .focusedSceneValue(\.browser, model)
         .task(id: model.watchKey) { await model.run() }
         .onAppear { model.actions.undoManager = undoManager }
+        .onDisappear { model.windowWillClose() }
         .onChange(of: undoManager) { _, manager in model.actions.undoManager = manager }
         .quickLookPreview($model.quickLookURL, in: model.items.map(\.url))
         .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in

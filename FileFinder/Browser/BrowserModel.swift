@@ -552,6 +552,14 @@ final class BrowserModel {
         }
     }
 
+    /// The window is going away: release any operation waiting on a conflict answer, so the
+    /// shared queue isn't blocked forever.
+    func windowWillClose() {
+        if pendingConflict != nil {
+            answerConflict(ConflictDecision(resolution: .skip, applyToAll: true))
+        }
+    }
+
     func answerConflict(_ decision: ConflictDecision) {
         pendingConflict = nil
         let continuation = conflictContinuation

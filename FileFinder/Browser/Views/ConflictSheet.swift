@@ -22,12 +22,14 @@ struct ConflictSheet: View {
                        isOn: $applyToAll)
             }
             HStack {
-                Button("Stop", role: .cancel) {
-                    onAnswer(ConflictDecision(resolution: .skip, applyToAll: true))
+                if conflict.remaining > 0 {
+                    Button("Skip All") {
+                        onAnswer(ConflictDecision(resolution: .skip, applyToAll: true))
+                    }
                 }
-                .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Skip") { answer(.skip) }
+                    .keyboardShortcut(.cancelAction)
                 Button("Replace") { answer(.replace) }
                 Button("Keep Both") { answer(.keepBoth) }
                     .keyboardShortcut(.defaultAction)

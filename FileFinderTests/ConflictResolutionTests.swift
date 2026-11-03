@@ -121,7 +121,7 @@ struct ConflictResolutionTests {
             return ConflictDecision(resolution: .skip)
         }
 
-        #expect(remaining == [1])
+        #expect(remaining == [0])
     }
 
     @Test("Duplicating inside the same folder never asks")
@@ -133,6 +133,66 @@ struct ConflictResolutionTests {
 
         #expect(asked.names.isEmpty)
         #expect(copies.map(\.lastPathComponent) == ["x copy.txt"])
+    }
+
+    @Test("When a replacing copy fails, the item it was replacing is put back and the rest isn't trashed")
+    func failedReplaceRollsBack() async throws {
+        let unreadable = try dir.file("a/p.txt", bytes: 1)
+        let readable = try dir.file("a/q.txt", bytes: 1)
+        let target = try dir.folder("b")
+        let oldP = try dir.file("b/p.txt", bytes: 2)
+        let oldQ = try dir.file("b/q.txt", bytes: 2)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable.path) }
+
+        await #expect(throws: (any Error).self) {
+            try await actions.copy([unreadable, readable], into: target,
+                                   resolveConflicts: answering(.replace, applyToAll: true, asked: Recorder()))
+        }
+
+        #expect(try size(oldP) == 2)   // put back after its replacement failed
+        #expect(try size(oldQ) == 2)   // never touched: the batch stopped first
+    }
+
+    @Test("An item that is itself part of the batch is never replaced")
+    func batchSourceIsNotReplaced() async throws {
+        let top = try dir.file("x.txt", bytes: 1)
+        let nested = try dir.file("a/x.txt", bytes: 2)
+        let asked = Recorder()
+
+        let copies = try await actions.copy([top, nested], into: dir.url, resolveConflicts: answering(.replace, asked: asked))
+
+        #expect(asked.names.isEmpty)
+        #expect(try size(top) == 1)
+        #expect(copies.map(\.lastPathComponent).sorted() == ["x 2.txt", "x copy.txt"])
+    }
+
+    @Test("Undoing a replace restores the original name's letter case")
+    func undoKeepsOriginalCase() async throws {
+        let source = try dir.file("a/foo.txt", bytes: 1)
+        let target = try dir.folder("b")
+        try dir.file("b/Foo.txt", bytes: 2)
+
+        _ = try await actions.copy([source], into: target, resolveConflicts: answering(.replace, asked: Recorder()))
+        await undo()
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == ["Foo.txt"])
+    }
+
+    @Test("The remaining count only counts items that will also clash")
+    func remainingCountsConflictsOnly() async throws {
+        let sources = try ["p", "q", "r"].map { try dir.file("a/\($0).txt") }
+        let target = try dir.folder("b")
+        try dir.file("b/p.txt")
+        try dir.file("b/r.txt")
+        var remaining: [Int] = []
+
+        _ = try await actions.copy(sources, into: target) { conflict in
+            remaining.append(conflict.remaining)
+            return ConflictDecision(resolution: .skip)
+        }
+
+        #expect(remaining == [1, 0])
     }
 
     @Test("Replacing the folder that contains the item being moved is refused")
@@ -176,5 +236,27 @@ struct ConflictPromptTests {
 
         #expect(model.pendingConflict == nil)
         #expect(try Data(contentsOf: existing).count == 1)
+    }
+
+    @Test("Closing the window while a conflict is pending skips it, so later operations still run")
+    func closingWindowReleasesPrompt() async throws {
+        let dir = try TemporaryDirectory()
+        let source = try dir.file("a/x.txt", bytes: 1)
+        let target = try dir.folder("b")
+        let existing = try dir.file("b/x.txt", bytes: 2)
+        let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
+        let model = BrowserModel(start: target, actions: actions, defaults: defaults)
+        actions.copyToClipboard([source])
+
+        let pasting = Task { await model.paste() }
+        while model.pendingConflict == nil { await Task.yield() }
+        model.windowWillClose()
+        await pasting.value
+
+        #expect(try Data(contentsOf: existing).count == 2)
+        let later = try await actions.copy([source], into: dir.folder("c"))
+        #expect(later.count == 1)
     }
 }
