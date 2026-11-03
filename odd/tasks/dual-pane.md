@@ -28,3 +28,6 @@ Route evidence: all units touch FileActions/BrowserModel or depend on them; no W
 ## Log
 
 - L1 (2026-11-03) User: "start the dual pane slice"
+- L2 T1 verifier: B1 — all Replace targets were trashed up front, so a failing transfer left the destination with neither old nor new items (also when the replaced item was another source of the batch). Advisories: prompt continuation never released on window close (would hang a shared queue), remaining count too broad, undo restored the incoming name's case, "Stop" wording.
+- L3 Correction (this commit): replace per item inside performCopies/performMoves with rollback on failure; batch sources never replaced; real on-disk name used for the replaced item; remaining counts later clashes only; windowWillClose answers skip-all; "Skip All" shown only when more conflicts follow. RED→GREEN for 5 regression tests; 112/112.
+- L4 T2 f5ca4a3: FileCopier (copyfile(3) with status callback, clone when possible, cancel via COPYFILE_QUIT), TransferProgress + TransferBar (shown after 0.4 s, Cancel, queued count), cancelCurrentTransfer cancels only the running operation; partial copies removed (not trashed); CancellationError never alerts.
