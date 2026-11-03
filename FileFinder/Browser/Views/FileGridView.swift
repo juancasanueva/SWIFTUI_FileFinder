@@ -35,7 +35,7 @@ struct FileGridView: View {
         .onChange(of: model.focusRequest) { isFocused = true }
         .contentShape(.rect)
         .dropDestination(for: URL.self) { urls, _ in
-            Task { await model.drop(urls, into: model.currentFolder, copying: NSEvent.modifierFlags.contains(.option)) }
+            model.handleDrop(urls, onto: nil)
             return true
         }
         .onTapGesture {
@@ -64,10 +64,8 @@ struct FileGridView: View {
                             urls: model.selection.contains(item.url) ? model.selection : [item.url])
                     }
                     .onDrag { model.beginDrag(item) }
-                    // Onto a folder card: into that folder; onto any other card: into this folder.
                     .dropDestination(for: URL.self) { urls, _ in
-                        let target = item.isNavigable ? item.url : model.currentFolder
-                        Task { await model.drop(urls, into: target, copying: NSEvent.modifierFlags.contains(.option)) }
+                        model.handleDrop(urls, onto: item)
                         return true
                     }
             }

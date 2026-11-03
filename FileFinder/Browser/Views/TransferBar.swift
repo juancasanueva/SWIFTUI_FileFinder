@@ -26,7 +26,11 @@ struct TransferBar: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(transfer.title).font(.callout).lineLimit(1).truncationMode(.middle)
-                    ProgressView(value: transfer.fraction)
+                    if transfer.isMeasuring {
+                        ProgressView().progressViewStyle(.linear)
+                    } else {
+                        ProgressView(value: transfer.fraction)
+                    }
                     Text(detail(transfer))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -41,7 +45,9 @@ struct TransferBar: View {
     }
 
     private func detail(_ transfer: TransferProgress) -> String {
-        var text = "\(StatusText.formatBytes(transfer.completedBytes)) of \(StatusText.formatBytes(transfer.totalBytes))"
+        var text = transfer.isMeasuring
+            ? "Preparing…"
+            : "\(StatusText.formatBytes(transfer.completedBytes)) of \(StatusText.formatBytes(transfer.totalBytes))"
         if actions.queuedOperations > 0 {
             text += " · \(actions.queuedOperations) more queued"
         }

@@ -33,15 +33,11 @@ struct FileListView: View {
             ForEach(model.items) { item in
                 TableRow(item)
                     .itemProvider { model.beginDrag(item) }
-                    // Onto a folder row: into that folder; onto any other row: into this folder.
-                    .dropDestination(for: URL.self) { urls in
-                        let target = item.isNavigable ? item.url : model.currentFolder
-                        Task { await model.drop(urls, into: target, copying: NSEvent.modifierFlags.contains(.option)) }
-                    }
+                    .dropDestination(for: URL.self) { urls in model.handleDrop(urls, onto: item) }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            Task { await model.drop(urls, into: model.currentFolder, copying: NSEvent.modifierFlags.contains(.option)) }
+            model.handleDrop(urls, onto: nil)
             return true
         }
         .focused($isFocused)

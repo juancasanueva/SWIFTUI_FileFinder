@@ -24,7 +24,7 @@ struct ConflictSheet: View {
             HStack {
                 if conflict.remaining > 0 {
                     Button("Skip All") {
-                        onAnswer(ConflictDecision(resolution: .skip, applyToAll: true))
+                        onAnswer(.skipAll)
                     }
                 }
                 Spacer()

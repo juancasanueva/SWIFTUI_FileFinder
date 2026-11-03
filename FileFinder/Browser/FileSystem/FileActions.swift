@@ -27,6 +27,9 @@ nonisolated struct ConflictDecision: Sendable, Equatable {
     var resolution: ConflictResolution
     /// Use the same answer for the rest of the batch.
     var applyToAll = false
+
+    /// Give up on every remaining conflict: used when nobody can answer anymore.
+    static let skipAll = ConflictDecision(resolution: .skip, applyToAll: true)
 }
 
 /// An incoming item whose name is taken by `existing`.
@@ -45,12 +48,15 @@ typealias ConflictResolver = (NameConflict) async -> ConflictDecision
 @Observable
 final class TransferProgress {
     let title: String
-    let totalBytes: Int64
+    /// Known once the sources are measured; until then the bar shows "Preparing…".
+    var totalBytes: Int64
     var completedBytes: Int64 = 0
+    var isMeasuring: Bool
 
-    init(title: String, totalBytes: Int64) {
+    init(title: String, totalBytes: Int64 = 0, isMeasuring: Bool = false) {
         self.title = title
         self.totalBytes = totalBytes
+        self.isMeasuring = isMeasuring
     }
 
     var fraction: Double {
@@ -134,13 +140,18 @@ final class FileActions {
     ) throws -> Void
 
     @ObservationIgnored private let copier: Copier
+    /// Bytes per item, measured before a copy for the progress bar.
+    typealias SizeMeasurer = @Sendable ([URL]) async -> [Int64]
+    @ObservationIgnored private let measureSizes: SizeMeasurer
 
     init(
         clipboard: FileClipboard = .shared,
-        copier: @escaping Copier = { try FileCopier.copy(from: $0, to: $1, progress: $2, shouldCancel: $3) }
+        copier: @escaping Copier = { try FileCopier.copy(from: $0, to: $1, progress: $2, shouldCancel: $3) },
+        measureSizes: @escaping SizeMeasurer = { await FileActions.sizes(of: $0) }
     ) {
         self.clipboard = clipboard
         self.copier = copier
+        self.measureSizes = measureSizes
     }
 
     /// Stops the running operation. Items it already finished stay (and can be undone);
@@ -192,20 +203,25 @@ final class FileActions {
             try Task.checkCancellation()
             var result = BatchResult()
             if !plan.transfers.isEmpty {
-                let sizes = await Self.sizes(of: plan.transfers.map(\.from))
-                let progress = TransferProgress(
-                    title: Self.copyTitle(plan.transfers, into: folder), totalBytes: sizes.reduce(0, +))
+                // Show the bar (and Cancel) before measuring: measuring a huge tree takes a while.
+                let progress = TransferProgress(title: Self.copyTitle(plan.transfers, into: folder), isMeasuring: true)
                 self.currentTransfer = progress
                 defer { self.currentTransfer = nil }
+                let sizes = await self.measureSizes(plan.transfers.map(\.from))
+                try Task.checkCancellation()
+                progress.totalBytes = sizes.reduce(0, +)
+                progress.isMeasuring = false
                 result = await Self.performCopies(
                     plan.transfers, replacing: plan.replacing, copier: self.copier, sizes: sizes
                 ) { bytes in
                     Task { @MainActor in progress.completedBytes = bytes }
                 }
             }
-            self.registerAsOneStep(if: !result.done.isEmpty) {
+            self.registerAsOneStep(if: !result.done.isEmpty || !result.trashed.isEmpty) {
                 if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
-                self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+                if !result.done.isEmpty {
+                    self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+                }
             }
             if let error = result.error { throw error }
             return result.done.map(\.to)
@@ -223,9 +239,9 @@ final class FileActions {
             let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
             let plan = try await Self.resolvedPlan(sources, into: folder, copying: false, resolver: resolveConflicts)
             let result = await Self.performMoves(plan.transfers, replacing: plan.replacing)
-            self.registerAsOneStep(if: !result.done.isEmpty) {
+            self.registerAsOneStep(if: !result.done.isEmpty || !result.trashed.isEmpty) {
                 if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
-                self.registerRelocationUndo("Move", result.done)
+                if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
             }
             if let error = result.error { throw error }
             return result.done.map(\.to)
@@ -450,11 +466,17 @@ final class FileActions {
                     break
                 }
             }
+            // Put the replaced item back; if that's impossible (its place got taken), keep it on
+            // record so undo can still try and report.
             func restoreReplaced() {
-                if let trashed { try? fileManager.moveItem(at: trashed.to, to: trashed.from) }
+                guard let trashed else { return }
+                if (try? fileManager.moveItem(at: trashed.to, to: trashed.from)) == nil {
+                    result.trashed.append(trashed)
+                }
             }
-            // Never write over, or clean up, something that is already there.
-            if fileManager.fileExists(atPath: transfer.to.path) {
+            // Never write over, or clean up, something that is already there. (When replacing,
+            // the copier itself refuses an occupied destination, and the catch below restores.)
+            if existing == nil, fileManager.fileExists(atPath: transfer.to.path) {
                 result.error = CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: transfer.to.path])
                 continue
             }
@@ -487,8 +509,9 @@ final class FileActions {
     }
 
     /// Bytes per item: logical size for files, the whole tree for folders.
-    @concurrent private nonisolated static func sizes(of urls: [URL]) async -> [Int64] {
+    @concurrent nonisolated static func sizes(of urls: [URL]) async -> [Int64] {
         urls.map { url in
+            if Task.isCancelled { return 0 }
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             if values?.isDirectory == true { return (try? FolderSizeCalculator.measure(url).totalBytes) ?? 0 }
             return Int64(values?.fileSize ?? 0)
@@ -539,8 +562,11 @@ final class FileActions {
                 result.done.append(transfer)
                 if let trashed { result.trashed.append(trashed) }
             } catch {
-                // Put back the item this move was going to replace.
-                if let trashed { try? fileManager.moveItem(at: trashed.to, to: trashed.from) }
+                // Put back the item this move was going to replace; if its place got taken,
+                // keep it on record so undo can still try.
+                if let trashed, (try? fileManager.moveItem(at: trashed.to, to: trashed.from)) == nil {
+                    result.trashed.append(trashed)
+                }
                 result.error = error
                 if stopOnError { break }
             }
@@ -606,7 +632,7 @@ final class FileActions {
     static func resolvedPlan(
         _ urls: [URL], into folder: URL, copying: Bool, resolver: ConflictResolver?
     ) async throws -> (transfers: [FileTransfer], replacing: [URL?]) {
-        func normalized(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased() }
+        func normalized(_ url: URL) -> String { comparablePath(url).lowercased() }
         let batchPaths = Set(urls.map(normalized))
         /// The item already on disk under `name` (in its real letter case), unless it is
         /// itself one of the items being transferred.
@@ -651,9 +677,7 @@ final class FileActions {
                 continue
             case .replace:
                 guard let existing else { continue }
-                let existingPath = existing.resolvingSymlinksInPath().standardizedFileURL.path
-                let sourcePath = source.resolvingSymlinksInPath().standardizedFileURL.path
-                if sourcePath.hasPrefix(existingPath + "/") {
+                if normalized(source).hasPrefix(normalized(existing) + "/") {
                     throw FileActionError.cannotReplaceContainingFolder(existing.lastPathComponent)
                 }
                 // The incoming item keeps its own name (and letter case), like Finder.
@@ -670,11 +694,16 @@ final class FileActions {
         return (transfers, replacing)
     }
 
+    /// The one path form used for comparisons: symlinks resolved, standardized.
+    nonisolated static func comparablePath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     /// Throws when `folder` is one of `urls` or lies inside one of them.
     nonisolated static func rejectNesting(_ urls: [URL], into folder: URL) throws {
-        let target = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        let target = comparablePath(folder)
         for url in urls {
-            let source = url.resolvingSymlinksInPath().standardizedFileURL.path
+            let source = comparablePath(url)
             if target == source || target.hasPrefix(source + "/") {
                 throw FileActionError.cannotCopyIntoItself
             }
@@ -682,8 +711,7 @@ final class FileActions {
     }
 
     nonisolated static func isSameFolder(_ a: URL, _ b: URL) -> Bool {
-        a.resolvingSymlinksInPath().standardizedFileURL.path
-            == b.resolvingSymlinksInPath().standardizedFileURL.path
+        comparablePath(a) == comparablePath(b)
     }
 
     /// Finder naming for clashes: "name copy.ext", "name copy 2.ext" when duplicating in place,

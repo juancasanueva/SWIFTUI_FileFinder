@@ -16,6 +16,16 @@ struct DragAndDropTests {
         actions = FileActions(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         BrowserModel.endDrag()
+        BrowserModel.dragPasteboard = NSPasteboard(name: .init("FileFinderTests-drag-\(UUID())"))
+    }
+
+    /// What AppKit does when our drag starts: the drag pasteboard carries the session marker.
+    private func simulateDragStarted() {
+        let pasteboard = BrowserModel.dragPasteboard
+        pasteboard.clearContents()
+        if let id = BrowserModel.currentDragID {
+            pasteboard.setString(id, forType: .init(BrowserModel.dragMarkerType))
+        }
     }
 
     private func pane(at folder: URL) async -> BrowserModel {
@@ -60,6 +70,7 @@ struct DragAndDropTests {
         let item = try #require(left.items.first { $0.name == "a.txt" })
 
         _ = left.beginDrag(item)
+        simulateDragStarted()
         _ = await right.drop([a], into: target, copying: false)
 
         #expect(right.items.map(\.name) == ["a.txt", "b.txt"])
@@ -76,7 +87,27 @@ struct DragAndDropTests {
         let item = try #require(left.items.first { $0.name == "a.txt" })
 
         _ = left.beginDrag(item)
+        simulateDragStarted()
         _ = await right.drop([a], into: target, copying: false)
+
+        #expect(right.items.map(\.name) == ["a.txt"])
+    }
+
+    @Test("A drag that ended elsewhere doesn't expand a later drop of the same file from another app")
+    func staleDragSessionIsIgnored() async throws {
+        let a = try dir.file("left/a.txt")
+        let b = try dir.file("left/b.txt")
+        let target = try dir.folder("right")
+        let left = await pane(at: a.deletingLastPathComponent())
+        let right = await pane(at: target)
+        left.selection = [a.canonical, b.canonical]
+
+        _ = left.beginDrag(try #require(left.items.first { $0.name == "a.txt" }))
+        simulateDragStarted()
+        // That drag ended in Finder; now a new drag of a.txt comes in from Finder.
+        BrowserModel.dragPasteboard.clearContents()
+        BrowserModel.dragPasteboard.writeObjects([a as NSURL])
+        _ = await right.drop([a], into: target, copying: true)
 
         #expect(right.items.map(\.name) == ["a.txt"])
     }

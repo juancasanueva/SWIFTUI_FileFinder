@@ -62,6 +62,8 @@ final class BrowserWindowModel {
     /// Splits into two panes on the active folder, or closes the inactive pane.
     func toggleSplit() {
         if isSplit {
+            // The closing pane may be waiting on a conflict answer; release it.
+            other?.windowWillClose()
             panes = [active]
             activeIndex = 0
         } else {
@@ -109,15 +111,15 @@ final class BrowserWindowModel {
             let results = copying
                 ? try await actions.copy(urls, into: folder, resolveConflicts: source.conflictResolver)
                 : try await actions.move(urls, into: folder, resolveConflicts: source.conflictResolver)
-            await target.reload()
             if target.currentFolder == folder { target.selection = Set(results.map(\.canonical)) }
         } catch is CancellationError {
             // Cancelled from the progress bar.
         } catch {
             source.alertMessage = error.localizedDescription
         }
+        // Both panes changed: one lost items (on a move), the other gained them.
         await source.reload()
-        if source !== target { await target.reload() }
+        await target.reload()
     }
 
     /// The window is closing: release anything waiting on a conflict answer.

@@ -537,15 +537,44 @@ final class BrowserModel {
 
     // MARK: Drag and drop
 
-    /// The drag in flight: the item grabbed and everything it carries. App-wide, like a drag.
-    private static var dragSession: (lead: URL, items: [URL])?
+    /// The drag this app started last: the item grabbed and everything it carries.
+    private static var dragSession: (id: String, lead: URL, items: [URL])?
+    /// Private pasteboard type that marks a drag as ours, carrying its session id.
+    static let dragMarkerType = "com.juancasanueva.FileFinder.drag-session"
+    /// The pasteboard drags travel on (swappable in tests).
+    static var dragPasteboard = NSPasteboard(name: .drag)
+    static var currentDragID: String? { dragSession?.id }
 
     /// Starts dragging `item`: the whole selection when the item is part of it. The pasteboard
-    /// carries the grabbed item's file URL, so Finder and other apps accept the drag too.
+    /// carries the grabbed item's file URL, so Finder and other apps accept the drag too, plus a
+    /// private marker so a drop can tell this drag from a later one of the same file.
     func beginDrag(_ item: FileItem) -> NSItemProvider {
         let items = selection.contains(item.url) ? selectedURLs : [item.url]
-        Self.dragSession = (item.url, items)
-        return NSItemProvider(object: item.url as NSURL)
+        let id = UUID().uuidString
+        Self.dragSession = (id, item.url, items)
+        let provider = NSItemProvider(object: item.url as NSURL)
+        provider.registerDataRepresentation(forTypeIdentifier: Self.dragMarkerType, visibility: .ownProcess) { completion in
+            completion(Data(id.utf8), nil)
+            return nil
+        }
+        return provider
+    }
+
+    /// The drag session behind a drop, if the drop really is that drag (its marker is on the
+    /// drag pasteboard). A drag that ended elsewhere never matches a later drop.
+    private static func session(for dropped: [URL]) -> [URL]? {
+        guard let session = dragSession,
+              dropped.contains(session.lead.canonical),
+              dragPasteboard.string(forType: .init(dragMarkerType)) == session.id else { return nil }
+        return session.items
+    }
+
+    /// What the views call on a drop: onto a folder goes into it, onto anything else into the
+    /// current folder; ⌥ held copies.
+    func handleDrop(_ urls: [URL], onto item: FileItem?) {
+        let target = item.flatMap { $0.isNavigable ? $0.url : nil } ?? currentFolder
+        let copying = NSEvent.modifierFlags.contains(.option)
+        Task { await drop(urls, into: target, copying: copying) }
     }
 
     static func endDrag() { dragSession = nil }
@@ -555,10 +584,7 @@ final class BrowserModel {
     @discardableResult
     func drop(_ urls: [URL], into folder: URL, copying: Bool) async -> Bool {
         let dropped = urls.map(\.canonical)
-        var items = dropped
-        if let session = Self.dragSession, dropped.contains(session.lead.canonical) {
-            items = session.items
-        }
+        var items = Self.session(for: dropped) ?? dropped
         Self.endDrag()
         let target = folder.canonical
         items = items.filter { $0 != target }   // a folder dropped onto itself
@@ -577,17 +603,17 @@ final class BrowserModel {
     /// Asks the user through `pendingConflict`; operations wait until `answerConflict`.
     var conflictResolver: ConflictResolver {
         { [weak self] conflict in
-            guard let self else { return ConflictDecision(resolution: .skip, applyToAll: true) }
+            guard let self else { return .skipAll }
             return await self.ask(about: conflict)
         }
     }
 
     private func ask(about conflict: NameConflict) async -> ConflictDecision {
         // After the window closed, operations still queued must not wait for an answer.
-        if isClosed { return ConflictDecision(resolution: .skip, applyToAll: true) }
+        if isClosed { return .skipAll }
         // Only one question at a time; operations are serialized, so this is just a safeguard.
         if let previous = conflictContinuation {
-            previous.resume(returning: ConflictDecision(resolution: .skip, applyToAll: true))
+            previous.resume(returning: .skipAll)
         }
         return await withCheckedContinuation { continuation in
             conflictContinuation = continuation
@@ -600,7 +626,7 @@ final class BrowserModel {
     func windowWillClose() {
         isClosed = true
         if pendingConflict != nil {
-            answerConflict(ConflictDecision(resolution: .skip, applyToAll: true))
+            answerConflict(.skipAll)
         }
     }
 

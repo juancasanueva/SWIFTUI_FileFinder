@@ -15,6 +15,7 @@ Quoted from the reference site (fileosmac.com), Dual Pane section:
 - S6 "Name conflicts prompt for keep both, replace, or skip."
   - Assumption: applies to every copy/move into a different folder (paste, F5/F6, drag), like Finder; duplicating inside the same folder keeps Finder's "copy" naming without a prompt. The prompt offers "apply to all" for the rest of the batch. Replace moves the existing item to the Trash and is undoable.
 - S7 "Both panes are restored after relaunch."
+- S8 User: "fix the follow-ups first" — the six follow-ups in L9.
 
 ## Tasks
 
@@ -22,6 +23,7 @@ Quoted from the reference site (fileosmac.com), Dual Pane section:
 - [x] T2 S5 — copy progress via copyfile(3), cancellable transfer queue + progress UI — inline — f5ca4a3 (RED→GREEN, 107/107)
 - [x] T3 S1,S2,S3,S7 — window model with two panes: split, active pane, Tab, ⌘U, F5/F6, state restoration + split UI — inline — ef71438 (RED→GREEN, 124/124)
 - [x] T4 S4 — drag and drop between panes and onto folders (move, ⌥ copies) — inline — 60afd8e (RED→GREEN, 131/131)
+- [ ] T5 S8 — fix the L9 follow-ups — inline
 
 Route evidence: all units touch FileActions/BrowserModel or depend on them; no Writer trigger.
 
@@ -42,3 +44,4 @@ Route evidence: all units touch FileActions/BrowserModel or depend on them; no W
   4. Copies pre-measure their sources before the progress bar (and Cancel) appear; a huge folder means a long, uncancellable first pass.
   5. Readability: duplicate reload in transferToOtherPane, repeated skip-all literal, two path normalizations in resolvedPlan, drop handler duplicated four times.
   6. Tests missing for F5/F6 into a clash, F5/F6 failure alerts and cancellation.
+- L10 (2026-11-03) User: "fix the follow-ups first"

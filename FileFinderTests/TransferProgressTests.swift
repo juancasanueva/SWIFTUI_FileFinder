@@ -98,7 +98,7 @@ struct TransferQueueTests {
         let actions = makeActions()
 
         let copying = Task { try await actions.copy([source], into: target) }
-        while actions.currentTransfer == nil { await Task.yield() }
+        while actions.currentTransfer == nil || actions.currentTransfer?.isMeasuring == true { await Task.yield() }
         #expect(actions.currentTransfer?.totalBytes == 1000)
         #expect(actions.currentTransfer?.title == "Copying “x.bin” to “b”")
 
@@ -142,6 +142,30 @@ struct TransferQueueTests {
         #expect(try await queued.value.map(\.lastPathComponent) == ["two.bin"])
     }
 
+    @Test("Cancel works while sizes are still being measured, before anything is copied",
+          .timeLimit(.minutes(1)))
+    func cancelDuringMeasuring() async throws {
+        let source = try dir.folder("a/Huge")
+        try dir.file("a/Huge/x.bin", bytes: 10)
+        let target = try dir.folder("b")
+        let copierRan = Flag()
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
+            copier: { _, _, _, _ in copierRan.set() },
+            measureSizes: { urls in
+                try? await Task.sleep(for: .seconds(30))   // a very large tree
+                return urls.map { _ in 0 }
+            })
+
+        let copying = Task { try await actions.copy([source], into: target) }
+        while actions.currentTransfer == nil { await Task.yield() }
+        #expect(actions.currentTransfer?.isMeasuring == true)
+        actions.cancelCurrentTransfer()
+
+        await #expect(throws: CancellationError.self) { try await copying.value }
+        #expect(!copierRan.value)
+    }
+
     @Test("A cancelled paste doesn't raise an error alert")
     func cancelIsQuiet() async throws {
         let source = try dir.file("a/x.bin", bytes: 1000)
@@ -158,4 +182,11 @@ struct TransferQueueTests {
 
         #expect(model.alertMessage == nil)
     }
+}
+
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+    var value: Bool { lock.withLock { storage } }
+    func set() { lock.withLock { storage = true } }
 }

@@ -195,6 +195,30 @@ struct ConflictResolutionTests {
         #expect(remaining == [1, 0])
     }
 
+    @Test("If the destination gets taken right after the old item was trashed, undo can still bring it back")
+    func racedReplaceStaysUndoable() async throws {
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+        // A copier that finds the name taken by something that appeared meanwhile.
+        let racing = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
+            copier: { _, destination, _, _ in
+                try Data("raced".utf8).write(to: destination)
+                throw CocoaError(.fileWriteFileExists)
+            })
+        racing.undoManager = undoManager
+        let source = try dir.file("a/x.txt", bytes: 1)
+        let target = try dir.folder("b")
+        try dir.file("b/x.txt", bytes: 2)
+
+        await #expect(throws: (any Error).self) {
+            try await racing.copy([source], into: target) { _ in ConflictDecision(resolution: .replace) }
+        }
+
+        #expect(try String(contentsOf: target.appending(path: "x.txt"), encoding: .utf8) == "raced")
+        #expect(undoManager.canUndo)   // the trashed original is still on record
+    }
+
     @Test("Replacing the folder that contains the item being moved is refused")
     func replacingParentIsRefused() async throws {
         let source = try dir.folder("x/x")   // moving x/x into the top folder would replace its own parent

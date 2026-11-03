@@ -125,6 +125,86 @@ struct BrowserWindowModelTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.path) == ["a.txt"])
     }
 
+    @Test("F5 into a folder with a clash asks through the active pane")
+    func copyToOtherPaneAsks() async throws {
+        let source = try dir.file("left/a.txt", bytes: 1)
+        let target = try dir.folder("right")
+        try dir.file("right/a.txt", bytes: 2)
+        let window = makeWindow(start: source.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: target)
+        await window.panes[0].reload()
+        window.panes[0].selection = [source.canonical]
+
+        let copying = Task { await window.copyToOtherPane() }
+        while window.panes[0].pendingConflict == nil { await Task.yield() }
+        window.panes[0].answerConflict(ConflictDecision(resolution: .keepBoth))
+        await copying.value
+
+        #expect(window.panes[1].items.map(\.name) == ["a 2.txt", "a.txt"])
+    }
+
+    @Test("A failed F6 shows the error in the active pane")
+    func moveToOtherPaneFailureAlerts() async throws {
+        let folder = try dir.folder("left/Box")
+        let window = makeWindow(start: folder.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: try dir.folder("left/Box/inner"))   // into itself
+        await window.panes[0].reload()
+        window.panes[0].selection = [folder.canonical]
+
+        await window.moveToOtherPane()
+
+        #expect(window.panes[0].alertMessage != nil)
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test("Cancelling an F5 copy shows no error")
+    func cancelledCopyToOtherPaneIsQuiet() async throws {
+        let source = try dir.file("left/a.bin", bytes: 1000)
+        let target = try dir.folder("right")
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
+            copier: { _, _, _, shouldCancel in
+                while !shouldCancel() { Thread.sleep(forTimeInterval: 0.01) }
+                throw CancellationError()
+            })
+        let window = BrowserWindowModel(
+            restoring: nil, defaultStart: source.deletingLastPathComponent(), actions: actions, defaults: defaults)
+        window.toggleSplit()
+        window.panes[1].navigate(to: target)
+        await window.panes[0].reload()
+        window.panes[0].selection = [source.canonical]
+
+        let copying = Task { await window.copyToOtherPane() }
+        while actions.currentTransfer == nil { await Task.yield() }
+        actions.cancelCurrentTransfer()
+        await copying.value
+
+        #expect(window.panes[0].alertMessage == nil)
+        #expect(window.panes[1].alertMessage == nil)
+    }
+
+    @Test("Closing the split releases a conflict prompt waiting in the closed pane")
+    func closingSplitReleasesPrompt() async throws {
+        let source = try dir.file("left/a.txt", bytes: 1)
+        let target = try dir.folder("right")
+        let existing = try dir.file("right/a.txt", bytes: 2)
+        let window = makeWindow(start: source.deletingLastPathComponent())
+        window.toggleSplit()
+        let right = window.panes[1]
+        right.navigate(to: target)
+
+        let dropping = Task { await right.drop([source], into: target, copying: true) }
+        while right.pendingConflict == nil { await Task.yield() }
+        window.toggleSplit()   // the left pane is active, so the right one closes
+        _ = await dropping.value
+
+        #expect(try Data(contentsOf: existing).count == 2)
+        let later = try await window.actions.copy([source], into: try dir.folder("other"))
+        #expect(later.count == 1)
+    }
+
     @Test("The window state round-trips, restoring both panes and the active one")
     func restoresState() throws {
         let left = try dir.folder("left")
