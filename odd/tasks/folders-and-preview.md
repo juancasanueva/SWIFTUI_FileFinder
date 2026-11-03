@@ -14,12 +14,13 @@ Branch: `feat/folders-and-preview` (stacked on `feat/core-browser`). Delivery: a
 
 ## Tasks
 
-- [ ] T1 S1 — New Folder action with undo/redo, menu command — inline
-- [ ] T2 S2 — card view arrow-key selection model + grid wiring — inline
-- [ ] T3 S3 — folder two-level preview loader + preview pane UI + toggle — inline
+- [x] T1 S1 — New Folder action with undo/redo, menu command — inline — 6a107dc (RED→GREEN 75/75)
+- [x] T2 S2 — card view arrow-key selection model + grid wiring — inline — ff3e8bc (RED→GREEN 82/82)
+- [x] T3 S3 — folder two-level preview loader + preview pane UI + toggle — inline — 7078715 (RED→GREEN 90/90)
 
 Route evidence: small dependent units in one window; no Writer trigger.
 
 ## Log
 
 - L1 (2026-11-03) User: "start the next slice" (slice proposed earlier: "New Folder, arrow keys in card view, the preview pane").
+- L2 T1-T3 done: New Folder (⇧⌘N, empty-only undo, redo recreates), card arrow keys (model.moveSelection + FileGridLayout, key handler on the focused grid, ⌘↓ opens), preview pane (.inspector, ⇧⌘P + toolbar, FolderPreviewLoader two levels, PreviewSubject). 90/90 tests; app launches. Not runtime-driven here: arrow keys, ⇧⌘P, inspector layout.
