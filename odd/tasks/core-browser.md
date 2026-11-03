@@ -21,6 +21,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - S12 "Cards show real previews: the first page of a document, a photo, a video frame, or a slide."
 - S14 User: "fix the review findings first" — the review findings recorded in L8 (all code findings; R1 sandbox is an accepted decision, no change).
 - S15 User: "fix the 5 smaller issues first" — the five follow-ups listed in L14/L13: (1) folder stuck on "Calculating…" when it changes mid-measure, (2) undo/redo of a multi-file move registers the full inverse even when the undo stops partway, (3) overlapping sidebar refreshes can apply an older snapshot, (4) leaving a deleted folder waits for in-flight size calculations, (5) a change deep inside a subfolder doesn't update its size.
+- S16 User: "fix the follow-ups first" — the three follow-ups in L19: (1) a huge busy tree is re-walked every walk-duration + 10 s, (2) a folder that once failed to measure is never refreshed by deep changes, (3) the busy-folder and pacing tests depend on wall-clock timing.
 - S13 App runs unsandboxed so it can browse the whole disk like Finder (assumption: required for a Finder replacement; Full Disk Access stays optional).
 
 ## Tasks
@@ -31,6 +32,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
 - [x] T5 S14 — fix review findings — inline — 814fc91, ca57e40; 58/58 tests (3 runs); verifier PASS after one correction; native review review-21beb81078489c20 approved + acknowledged
 - [x] T6 S15 — fix the 5 smaller issues — inline — cdbe8e5, 1927fe1, 67df663; 67/67 tests (3 runs); verifier PASS after two corrections; native review approved + acknowledged
+- [ ] T7 S16 — fix the three L19 follow-ups — inline
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -55,3 +57,4 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L17 Correction 1927fe1: deep changes coalesced into one pending set, refreshed every 2 s, each folder at most once per 10 s, previous size kept during refresh; no subtree watching at "/"; root prefix fixed; changedWhileMeasuring removed. RED→GREEN for busy-folder and root tests; 66/66, 3 runs. Recheck pending.
 - L18 Recheck of 1927fe1: B1 partially fixed (pacing stamped at walk start, so walks longer than the interval ran back to back). Second correction 67df663: lastDeepRefresh stamped when any walk finishes; interval injectable. RED→GREEN slowWalksArePaced; 67/67, 3 runs. Final recheck: B1 fixed.
 - L19 Third native review approved with non-blocking findings (follow-ups): a huge busy tree (~/Library seen from home with hidden files shown) is still re-walked every walk-duration + 10 s; a folder that once failed to measure is never refreshed by deep changes; the busy-folder and pacing tests depend on wall-clock timing and could be flaky on slow machines.
+- L20 (2026-11-03) User: "fix the follow-ups first"

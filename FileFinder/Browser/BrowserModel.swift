@@ -61,10 +61,10 @@ final class BrowserModel {
     @ObservationIgnored private var generations: [URL: Int] = [:]
     /// Names of sub-folders that changed below their direct contents, waiting to be re-measured.
     @ObservationIgnored private var deeplyChanged: Set<String> = []
-    /// When each folder's last walk ended.
-    @ObservationIgnored private var lastDeepRefresh: [URL: ContinuousClock.Instant] = [:]
-    /// Minimum pause between the end of one deep refresh of a folder and the start of the next.
-    @ObservationIgnored private let deepRefreshInterval: Duration
+    /// When each folder may be walked again after a deep change.
+    @ObservationIgnored private var pacer: DeepRefreshPacer
+    /// The time source for pacing; injectable so tests don't depend on the wall clock.
+    @ObservationIgnored private let now: () -> ContinuousClock.Instant
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -97,13 +97,15 @@ final class BrowserModel {
         actions: FileActions = FileActions(),
         defaults: UserDefaults = .standard,
         deepRefreshInterval: Duration = .seconds(10),
+        now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
     ) {
         currentFolder = start.canonical
         self.actions = actions
         self.defaults = defaults
         self.measurer = measurer
-        self.deepRefreshInterval = deepRefreshInterval
+        self.pacer = DeepRefreshPacer(baseInterval: deepRefreshInterval)
+        self.now = now
         showHidden = defaults.bool(forKey: Key.showHidden)
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
@@ -187,7 +189,7 @@ final class BrowserModel {
         measuring = []
         generations = [:]
         deeplyChanged = []
-        lastDeepRefresh = [:]
+        pacer.reset()
         items = []
         rawItems = []
         loadFailure = nil
@@ -283,23 +285,22 @@ final class BrowserModel {
     }
 
     /// Records sub-folders that changed somewhere below their direct contents.
-    private func noteDeepChanges(_ paths: [String], in folder: URL) {
+    func noteDeepChanges(_ paths: [String], in folder: URL) {
         guard folder == currentFolder else { return }
         deeplyChanged.formUnion(SubtreeWatcher.changedChildren(paths: paths, in: folder))
     }
 
-    /// Re-measures deeply changed sub-folders, all pending changes at once, each folder only
-    /// after a `deepRefreshInterval` pause since its last walk ended, keeping its previous size on screen meanwhile. Busy trees
+    /// Re-measures deeply changed sub-folders, all pending changes at once, each folder only when
+    /// `pacer` says its pause is over, keeping its previous size on screen meanwhile. Busy trees
     /// such as ~/Library change constantly; this keeps them from being re-walked non-stop.
-    private func refreshDeeplyChangedFolders(in folder: URL) async {
+    func refreshDeeplyChangedFolders(in folder: URL) async {
         guard folder == currentFolder, !deeplyChanged.isEmpty else { return }
         deeplyChanged.formIntersection(rawItems.map(\.name))
-        let now = ContinuousClock.now
+        let now = now()
         var due: Set<URL> = []
         for item in rawItems where item.isDirectory && deeplyChanged.contains(item.name) {
             // Still being walked, or walked recently: stay pending for a later round.
-            if measuring.contains(item.url) { continue }
-            if let last = lastDeepRefresh[item.url], now - last < deepRefreshInterval { continue }
+            if measuring.contains(item.url) || !pacer.isDue(item.url, at: now) { continue }
             deeplyChanged.remove(item.name)
             due.insert(item.url)
         }
@@ -322,8 +323,10 @@ final class BrowserModel {
     private func measurePass(refreshing: Set<URL>) async -> [URL] {
         let pending = rawItems
             .filter {
-                $0.isDirectory && (folderStats[$0.url] == nil || refreshing.contains($0.url))
-                    && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
+                guard $0.isDirectory, !measuring.contains($0.url) else { return false }
+                // A refresh retries folders that failed before: the failure may have been transient.
+                if refreshing.contains($0.url) { return true }
+                return folderStats[$0.url] == nil && !unmeasurableFolders.contains($0.url)
             }
             .map(\.url)
         let generationAtStart = Dictionary(pending.map { ($0, generations[$0, default: 0]) }, uniquingKeysWith: { a, _ in a })
@@ -331,24 +334,34 @@ final class BrowserModel {
         defer { measuring.subtract(pending) }
 
         var remeasure: [URL] = []
+        var startedAt: [URL: ContinuousClock.Instant] = [:]
         var queue = pending.makeIterator()
         await withTaskGroup(of: (URL, FolderStats?).self) { group in
             for _ in 0..<4 {
                 guard let url = queue.next() else { break }
+                startedAt[url] = now()
                 group.addTask { [measurer] in (url, await measurer(url)) }
             }
             for await (url, stats) in group {
                 if Task.isCancelled { group.cancelAll(); break }
                 let stillListed = rawItems.contains { $0.url == url }
-                // The pause before a deep refresh counts from the end of the last walk, so a walk
-                // longer than the interval isn't followed straight away by another one.
-                lastDeepRefresh[url] = ContinuousClock.now
+                // The pause before a deep refresh counts from the end of the last walk and grows
+                // with its duration, so long walks aren't followed straight away by another one.
+                let ended = now()
+                pacer.recordWalk(of: url, started: startedAt[url] ?? ended, ended: ended)
                 if stillListed, generations[url, default: 0] == generationAtStart[url] {
-                    if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
+                    if let stats {
+                        folderStats[url] = stats
+                        unmeasurableFolders.remove(url)
+                    } else {
+                        folderStats[url] = nil
+                        unmeasurableFolders.insert(url)
+                    }
                 } else if stillListed {
                     remeasure.append(url)  // invalidated mid-walk: the result is stale
                 }
                 if let next = queue.next() {
+                    startedAt[next] = now()
                     group.addTask { [measurer] in (next, await measurer(next)) }
                 }
             }
