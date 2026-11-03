@@ -14,6 +14,14 @@ nonisolated enum FileCopier {
         progress: @escaping Progress, shouldCancel: @escaping @Sendable () -> Bool
     ) throws {
         if shouldCancel() { throw CancellationError() }
+        // COPYFILE_EXCL only refuses file-onto-file: a folder (or file) copied onto an existing
+        // folder would silently go inside it. Refuse anything already there, links included.
+        var status = stat()
+        if lstat(destination.path, &status) == 0 {
+            throw NSError(
+                domain: NSPOSIXErrorDomain, code: Int(EEXIST),
+                userInfo: [NSFilePathErrorKey: destination.path, NSURLErrorKey: source])
+        }
 
         let context = CallbackContext(progress: progress, shouldCancel: shouldCancel)
         guard let state = copyfile_state_alloc() else { throw POSIXError(.ENOMEM) }

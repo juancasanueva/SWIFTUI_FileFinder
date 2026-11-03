@@ -474,11 +474,13 @@ final class FileActions {
                     result.trashed.append(trashed)
                 }
             }
-            // Never write over, or clean up, something that is already there. (When replacing,
-            // the copier itself refuses an occupied destination, and the catch below restores.)
-            if existing == nil, fileManager.fileExists(atPath: transfer.to.path) {
+            // Never write over, merge into, or clean up something that is already there. When
+            // replacing, the place should be free now; if something took it, put the original back.
+            if fileManager.fileExists(atPath: transfer.to.path) {
                 result.error = CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: transfer.to.path])
-                continue
+                guard existing != nil else { continue }
+                restoreReplaced()
+                break
             }
             do {
                 let offset = base
@@ -640,8 +642,11 @@ final class FileActions {
             let candidate = folder.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: candidate.path),
                   !batchPaths.contains(normalized(candidate)) else { return nil }
+            // Prefer the exact name: on a case-sensitive volume "Photos" and "photos" are different.
             let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-            let realName = entries.first { $0.lowercased() == name.lowercased() } ?? name
+            let realName = entries.contains(name)
+                ? name
+                : entries.first { $0.lowercased() == name.lowercased() } ?? name
             return folder.appendingPathComponent(realName)
         }
         let clashes: [URL?] = urls.map { source in

@@ -219,6 +219,33 @@ struct ConflictResolutionTests {
         #expect(undoManager.canUndo)   // the trashed original is still on record
     }
 
+    @Test("If a folder appears where a replaced folder was, the copy refuses instead of merging into it")
+    func racedFolderReplaceDoesNotMerge() async throws {
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+        // A real copy, but a folder appears at the destination just before it starts.
+        let racing = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
+            copier: { source, destination, progress, shouldCancel in
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+                try Data("other".utf8).write(to: destination.appending(path: "other.txt"))
+                try FileCopier.copy(from: source, to: destination, progress: progress, shouldCancel: shouldCancel)
+            })
+        racing.undoManager = undoManager
+        let source = try dir.folder("src/Photos")
+        try dir.file("src/Photos/new.jpg")
+        let target = try dir.folder("dst")
+        try dir.file("dst/Photos/old.jpg")
+
+        await #expect(throws: (any Error).self) {
+            try await racing.copy([source], into: target) { _ in ConflictDecision(resolution: .replace) }
+        }
+
+        let raced = target.appending(path: "Photos")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: raced.path) == ["other.txt"])   // not merged into
+        #expect(undoManager.canUndo)   // the trashed original is still on record
+    }
+
     @Test("Replacing the folder that contains the item being moved is refused")
     func replacingParentIsRefused() async throws {
         let source = try dir.folder("x/x")   // moving x/x into the top folder would replace its own parent

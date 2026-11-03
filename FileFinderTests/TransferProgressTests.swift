@@ -45,6 +45,32 @@ struct FileCopierTests {
         #expect(try Data(contentsOf: existing).count == 2)
     }
 
+    @Test("Refuses to copy a folder onto an existing folder instead of nesting it inside")
+    func refusesExistingFolder() throws {
+        let dir = try TemporaryDirectory()
+        let source = try dir.folder("src/Photos")
+        try dir.file("src/Photos/new.jpg")
+        let existing = try dir.folder("dst/Photos")
+        try dir.file("dst/Photos/mine.jpg")
+
+        #expect(throws: (any Error).self) {
+            try FileCopier.copy(from: source, to: existing, progress: { _ in }, shouldCancel: { false })
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: existing.path) == ["mine.jpg"])
+    }
+
+    @Test("Refuses to copy a file onto an existing folder")
+    func refusesFileOntoFolder() throws {
+        let dir = try TemporaryDirectory()
+        let source = try dir.file("a.txt")
+        let existing = try dir.folder("b")
+
+        #expect(throws: (any Error).self) {
+            try FileCopier.copy(from: source, to: existing, progress: { _ in }, shouldCancel: { false })
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: existing.path).isEmpty)
+    }
+
     @Test("Cancelling mid-copy stops with a cancellation error")
     func cancelsMidCopy() throws {
         let dir = try TemporaryDirectory()
