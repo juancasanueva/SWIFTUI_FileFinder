@@ -32,6 +32,7 @@ struct FileGridView: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { handleArrow($0) }
+        .onChange(of: model.focusRequest) { isFocused = true }
         .contentShape(.rect)
         .onTapGesture {
             isFocused = true

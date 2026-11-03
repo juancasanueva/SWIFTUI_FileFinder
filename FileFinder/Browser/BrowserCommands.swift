@@ -4,6 +4,7 @@ import SwiftUI
 /// Menu bar commands and keyboard shortcuts for the key browser window.
 struct BrowserCommands: Commands {
     @FocusedValue(\.browser) private var browser
+    @FocusedValue(\.browserWindow) private var window
 
     private var hasSelection: Bool { !(browser?.selection.isEmpty ?? true) }
     private var isTyping: Bool { browser?.isTyping ?? false }
@@ -16,6 +17,14 @@ struct BrowserCommands: Commands {
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut("o")
                 .disabled(!hasSelection || isTyping)
+            Divider()
+            Button("Copy to Other Pane") { Task { await window?.copyToOtherPane() } }
+                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
+                .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)
+            Button("Move to Other Pane") { Task { await window?.moveToOtherPane() } }
+                .keyboardShortcut(Self.functionKey(NSF6FunctionKey), modifiers: [])
+                .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)
+            Divider()
             Button("Move to Trash") { Task { await browser?.trashSelection() } }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(!hasSelection || isTyping)
@@ -38,6 +47,17 @@ struct BrowserCommands: Commands {
         }
 
         CommandGroup(before: .toolbar) {
+            Button(window?.isSplit == true ? "Close Split View" : "Split View") { window?.toggleSplit() }
+                .keyboardShortcut("d")
+                .disabled(window == nil || isTyping)
+            // A bare Tab: disabled while typing so text fields keep Tab (path completion).
+            Button("Switch Pane") { window?.switchPane() }
+                .keyboardShortcut(.tab, modifiers: [])
+                .disabled(!(window?.isSplit ?? false) || isTyping)
+            Button("Swap Panes") { window?.swapPanes() }
+                .keyboardShortcut("u")
+                .disabled(!(window?.isSplit ?? false) || isTyping)
+            Divider()
             Button("as List") { browser?.viewMode = .list }
                 .keyboardShortcut("1")
             Button("as Cards") { browser?.viewMode = .cards }
@@ -80,6 +100,10 @@ struct BrowserCommands: Commands {
             Button("Go to Folder…") { browser?.isEditingPath = true }
                 .keyboardShortcut("l")
         }
+    }
+
+    private static func functionKey(_ code: Int) -> KeyEquivalent {
+        KeyEquivalent(Character(Unicode.Scalar(UInt32(code)) ?? " "))
     }
 
     private func go(to homeRelativePath: String) {

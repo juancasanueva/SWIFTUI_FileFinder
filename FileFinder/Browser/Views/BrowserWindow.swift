@@ -1,127 +1,95 @@
 import AppKit
-import QuickLook
 import SwiftUI
 
 extension FocusedValues {
-    /// The browser of the key window, used by menu commands.
+    /// The active pane of the key window, used by menu commands.
     @Entry var browser: BrowserModel?
+    /// The key window, for pane commands (split, swap, copy/move to the other pane).
+    @Entry var browserWindow: BrowserWindowModel?
 }
 
+/// A browser window. Its panes and folders are restored after relaunch.
 struct BrowserWindow: View {
-    @Environment(\.undoManager) private var undoManager
-    @State private var model = BrowserModel(start: BrowserModel.defaultStartFolder())
+    @SceneStorage("windowState") private var savedState = ""
+    @State private var window: BrowserWindowModel?
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(model: model)
-        } detail: {
-            VStack(spacing: 0) {
-                PathBar(model: model)
-                Divider()
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onKeyPress(.space, action: handleSpace)
-                    .onKeyPress(.return, action: handleReturn)
-                TransferBar(actions: model.actions)
-                Divider()
-                Text(model.statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
+        if let window {
+            BrowserWindowContent(window: window)
+                .onChange(of: window.state) { _, state in savedState = state.encoded }
+        } else {
+            // @SceneStorage is only readable once the view is in a scene, so build the model here.
+            Color.clear.onAppear {
+                window = BrowserWindowModel(restoring: try? WindowState(encoded: savedState))
             }
         }
-        .inspector(isPresented: $model.showPreview) {
-            PreviewPane(model: model)
+    }
+}
+
+private struct BrowserWindowContent: View {
+    @Environment(\.undoManager) private var undoManager
+    let window: BrowserWindowModel
+
+    var body: some View {
+        @Bindable var active = window.active
+        NavigationSplitView {
+            SidebarView(model: active)
+        } detail: {
+            VStack(spacing: 0) {
+                HSplitView {
+                    ForEach(window.panes, id: \.objectID) { pane in
+                        PaneView(
+                            model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
+                            onActivate: { window.activate(pane) })
+                        .frame(minWidth: 280)
+                    }
+                }
+                TransferBar(actions: window.actions)
+            }
+        }
+        .inspector(isPresented: $active.showPreview) {
+            PreviewPane(model: active)
                 .inspectorColumnWidth(min: 220, ideal: 280, max: 420)
         }
-        .navigationTitle(model.title)
-        .toolbar { toolbar }
-        .focusedSceneValue(\.browser, model)
-        .task(id: model.watchKey) { await model.run() }
-        .onAppear { model.actions.undoManager = undoManager }
-        .onDisappear { model.windowWillClose() }
-        .onChange(of: undoManager) { _, manager in model.actions.undoManager = manager }
-        .quickLookPreview($model.quickLookURL, in: model.items.map(\.url))
-        .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in
-            ConflictSheet(conflict: conflict) { model.answerConflict($0) }
-        }
-        .alert(
-            "The operation couldn't be completed.",
-            isPresented: Binding(get: { model.alertMessage != nil }, set: { if !$0 { model.alertMessage = nil } }),
-            presenting: model.alertMessage
-        ) { _ in
-            Button("OK") { model.alertMessage = nil }
-        } message: { message in
-            Text(message)
-        }
+        .navigationTitle(active.title)
+        .toolbar { toolbar(active) }
+        .focusedSceneValue(\.browser, active)
+        .focusedSceneValue(\.browserWindow, window)
+        .onAppear { window.actions.undoManager = undoManager }
+        .onChange(of: undoManager) { _, manager in window.actions.undoManager = manager }
+        .onDisappear { window.windowWillClose() }
         .frame(minWidth: 720, minHeight: 420)
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if let failure = model.loadFailure {
-            if failure.needsFullDiskAccess {
-                ContentUnavailableView {
-                    Label("Can't open this folder", systemImage: "lock")
-                } description: {
-                    Text("\(failure.message)\n\nGrant Full Disk Access to browse every folder, like Finder.")
-                } actions: {
-                    Button("Open Privacy Settings") {
-                        let link = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-                        if let url = URL(string: link) { NSWorkspace.shared.open(url) }
-                    }
-                }
-            } else {
-                ContentUnavailableView {
-                    Label("Can't open this folder", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(failure.message)
-                } actions: {
-                    Button("Go to Home Folder") {
-                        model.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
-                    }
-                }
-            }
-        } else {
-            switch model.viewMode {
-            case .list: FileListView(model: model)
-            case .cards: FileGridView(model: model)
-            }
-        }
-    }
-
     @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
+    private func toolbar(_ active: BrowserModel) -> some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
-            Button("Back", systemImage: "chevron.left", action: model.goBack)
-                .disabled(!model.canGoBack)
-            Button("Forward", systemImage: "chevron.right", action: model.goForward)
-                .disabled(!model.canGoForward)
+            Button("Back", systemImage: "chevron.left", action: active.goBack)
+                .disabled(!active.canGoBack)
+            Button("Forward", systemImage: "chevron.right", action: active.goForward)
+                .disabled(!active.canGoForward)
         }
         ToolbarItem {
-            Button("Preview", systemImage: "sidebar.right") { model.showPreview.toggle() }
+            Button(window.isSplit ? "Single Pane" : "Split", systemImage: "rectangle.split.2x1") {
+                window.toggleSplit()
+            }
+            .help("Split into two panes (⌘D)")
+        }
+        ToolbarItem {
+            Button("Preview", systemImage: "sidebar.right") { active.showPreview.toggle() }
                 .help("Show or hide the preview pane (⇧⌘P)")
         }
         ToolbarItem {
-            Picker("View", selection: $model.viewMode) {
+            Picker("View", selection: Bindable(active).viewMode) {
                 Label("List", systemImage: "list.bullet").tag(BrowserViewMode.list)
                 Label("Cards", systemImage: "square.grid.2x2").tag(BrowserViewMode.cards)
             }
             .pickerStyle(.segmented)
         }
     }
+}
 
-    private func handleSpace() -> KeyPress.Result {
-        guard !model.isTyping, !model.selection.isEmpty else { return .ignored }
-        model.toggleQuickLook()
-        return .handled
-    }
-
-    private func handleReturn() -> KeyPress.Result {
-        guard !model.isTyping, model.selection.count == 1 else { return .ignored }
-        model.beginRename()
-        return .handled
-    }
+extension BrowserModel {
+    /// Stable identity for `ForEach`.
+    var objectID: ObjectIdentifier { ObjectIdentifier(self) }
 }

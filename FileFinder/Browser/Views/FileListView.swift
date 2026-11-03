@@ -3,6 +3,7 @@ import SwiftUI
 /// List view: sortable Name / Date Modified / Size / Kind columns.
 struct FileListView: View {
     @Bindable var model: BrowserModel
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Table(model.items, selection: $model.selection, sortOrder: $model.sortOrder) {
@@ -29,6 +30,8 @@ struct FileListView: View {
             }
             .width(min: 80, ideal: 140)
         }
+        .focused($isFocused)
+        .onChange(of: model.focusRequest) { isFocused = true }
         .contextMenu(forSelectionType: URL.self) { urls in
             FileContextMenu(model: model, urls: urls)
         } primaryAction: { urls in

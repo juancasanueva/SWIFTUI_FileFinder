@@ -91,7 +91,11 @@ final class BrowserModel {
     /// A name clash waiting for the user's answer (shown as a sheet).
     private(set) var pendingConflict: NameConflict?
     @ObservationIgnored private var conflictContinuation: CheckedContinuation<ConflictDecision, Never>?
+    /// Set when the window closes: nobody can answer a prompt anymore.
+    @ObservationIgnored private var isClosed = false
     @ObservationIgnored private var selectionAnchor: URL?
+    /// Bumped to ask this pane's file list to take keyboard focus (e.g. after Tab).
+    var focusRequest = 0
     /// The item the last click or arrow key landed on; the grid scrolls it into view.
     private(set) var selectionCursor: URL?
 
@@ -542,6 +546,8 @@ final class BrowserModel {
     }
 
     private func ask(about conflict: NameConflict) async -> ConflictDecision {
+        // After the window closed, operations still queued must not wait for an answer.
+        if isClosed { return ConflictDecision(resolution: .skip, applyToAll: true) }
         // Only one question at a time; operations are serialized, so this is just a safeguard.
         if let previous = conflictContinuation {
             previous.resume(returning: ConflictDecision(resolution: .skip, applyToAll: true))
@@ -555,6 +561,7 @@ final class BrowserModel {
     /// The window is going away: release any operation waiting on a conflict answer, so the
     /// shared queue isn't blocked forever.
     func windowWillClose() {
+        isClosed = true
         if pendingConflict != nil {
             answerConflict(ConflictDecision(resolution: .skip, applyToAll: true))
         }
