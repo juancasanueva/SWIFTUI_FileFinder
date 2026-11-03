@@ -88,6 +88,9 @@ final class BrowserModel {
     var isEditingPath = false
     var quickLookURL: URL?
     var alertMessage: String?
+    /// A name clash waiting for the user's answer (shown as a sheet).
+    private(set) var pendingConflict: NameConflict?
+    @ObservationIgnored private var conflictContinuation: CheckedContinuation<ConflictDecision, Never>?
     @ObservationIgnored private var selectionAnchor: URL?
     /// The item the last click or arrow key landed on; the grid scrolls it into view.
     private(set) var selectionCursor: URL?
@@ -508,7 +511,8 @@ final class BrowserModel {
     func paste(forceMove: Bool = false) async {
         let folder = currentFolder
         await perform {
-            let pasted = try await actions.paste(into: folder, forceMove: forceMove)
+            let pasted = try await actions.paste(
+                into: folder, forceMove: forceMove, resolveConflicts: conflictResolver)
             if !pasted.isEmpty, folder == currentFolder { selection = Set(pasted.map(\.canonical)) }
         }
     }
@@ -525,6 +529,34 @@ final class BrowserModel {
         } catch {
             alertMessage = error.localizedDescription
         }
+    }
+
+    // MARK: Name conflicts
+
+    /// Asks the user through `pendingConflict`; operations wait until `answerConflict`.
+    var conflictResolver: ConflictResolver {
+        { [weak self] conflict in
+            guard let self else { return ConflictDecision(resolution: .skip, applyToAll: true) }
+            return await self.ask(about: conflict)
+        }
+    }
+
+    private func ask(about conflict: NameConflict) async -> ConflictDecision {
+        // Only one question at a time; operations are serialized, so this is just a safeguard.
+        if let previous = conflictContinuation {
+            previous.resume(returning: ConflictDecision(resolution: .skip, applyToAll: true))
+        }
+        return await withCheckedContinuation { continuation in
+            conflictContinuation = continuation
+            pendingConflict = conflict
+        }
+    }
+
+    func answerConflict(_ decision: ConflictDecision) {
+        pendingConflict = nil
+        let continuation = conflictContinuation
+        conflictContinuation = nil
+        continuation?.resume(returning: decision)
     }
 
     func trashSelection() async {

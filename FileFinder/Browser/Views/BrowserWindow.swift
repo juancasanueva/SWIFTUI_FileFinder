@@ -42,6 +42,9 @@ struct BrowserWindow: View {
         .onAppear { model.actions.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.actions.undoManager = manager }
         .quickLookPreview($model.quickLookURL, in: model.items.map(\.url))
+        .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in
+            ConflictSheet(conflict: conflict) { model.answerConflict($0) }
+        }
         .alert(
             "The operation couldn't be completed.",
             isPresented: Binding(get: { model.alertMessage != nil }, set: { if !$0 { model.alertMessage = nil } }),

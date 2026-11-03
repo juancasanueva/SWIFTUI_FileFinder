@@ -5,15 +5,41 @@ enum FileActionError: LocalizedError, Equatable {
     case invalidName
     case nameTaken(String)
     case cannotCopyIntoItself
+    case cannotReplaceContainingFolder(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidName: "That name can't be used. Names can't be empty or contain \"/\"."
         case .nameTaken(let name): "The name \"\(name)\" is already taken. Please choose a different name."
         case .cannotCopyIntoItself: "A folder can't be copied or moved into itself."
+        case .cannotReplaceContainingFolder(let name):
+            "“\(name)” can't be replaced because it contains the item being moved or copied."
         }
     }
 }
+
+/// How to handle an item whose name is already taken in the destination folder.
+nonisolated enum ConflictResolution: Sendable {
+    case keepBoth, replace, skip
+}
+
+nonisolated struct ConflictDecision: Sendable, Equatable {
+    var resolution: ConflictResolution
+    /// Use the same answer for the rest of the batch.
+    var applyToAll = false
+}
+
+/// An incoming item whose name is taken by `existing`.
+nonisolated struct NameConflict: Identifiable, Sendable, Equatable {
+    let id = UUID()
+    let source: URL
+    let existing: URL
+    /// Items of the same batch still to be handled after this one.
+    let remaining: Int
+}
+
+/// Asks the user about one conflict. `nil` means "keep both" without asking.
+typealias ConflictResolver = (NameConflict) async -> ConflictDecision
 
 /// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
 nonisolated struct FileTransfer: Equatable, Sendable {
@@ -107,33 +133,61 @@ final class FileActions {
 
     // MARK: - Copy / Move
 
-    /// Copies items into `folder`, keeping both on name clashes. Returns the created URLs.
+    /// Copies items into `folder`. Name clashes go to `resolveConflicts`; without one, both are
+    /// kept. Returns the created URLs.
     @discardableResult
-    func copy(_ urls: [URL], into folder: URL) async throws -> [URL] {
+    func copy(
+        _ urls: [URL], into folder: URL, resolveConflicts: ConflictResolver? = nil
+    ) async throws -> [URL] {
         try Self.rejectNesting(urls, into: folder)
         return try await serialized {
             // Planned inside the queue, so earlier operations' results count as taken names.
-            let plan = Self.plan(urls, into: folder, copying: true)
-            let result = await Self.performCopies(plan)
-            if !result.done.isEmpty {
-                self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+            let plan = try await Self.resolvedPlan(urls, into: folder, copying: true, resolver: resolveConflicts)
+            let replaced = await Self.performTrash(plan.replacing)
+            let result = replaced.error == nil ? await Self.performCopies(plan.transfers) : BatchResult()
+            self.registerAsOneStep(if: !replaced.done.isEmpty || !result.done.isEmpty) {
+                if !replaced.done.isEmpty { self.registerRelocationUndo("Replace", replaced.done) }
+                if !result.done.isEmpty {
+                    self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+                }
             }
-            if let error = result.error { throw error }
+            if let error = replaced.error ?? result.error { throw error }
             return result.done.map(\.to)
         }
     }
 
-    /// Moves items into `folder`. Items already in `folder` are skipped. Returns the new URLs.
+    /// Moves items into `folder`. Items already in `folder` are skipped; name clashes go to
+    /// `resolveConflicts` (without one, both are kept). Returns the new URLs.
     @discardableResult
-    func move(_ urls: [URL], into folder: URL) async throws -> [URL] {
+    func move(
+        _ urls: [URL], into folder: URL, resolveConflicts: ConflictResolver? = nil
+    ) async throws -> [URL] {
         try Self.rejectNesting(urls, into: folder)
         return try await serialized {
             let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
-            let result = await Self.performMoves(Self.plan(sources, into: folder, copying: false))
-            if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
-            if let error = result.error { throw error }
+            let plan = try await Self.resolvedPlan(sources, into: folder, copying: false, resolver: resolveConflicts)
+            let replaced = await Self.performTrash(plan.replacing)
+            let result = replaced.error == nil ? await Self.performMoves(plan.transfers) : BatchResult()
+            self.registerAsOneStep(if: !replaced.done.isEmpty || !result.done.isEmpty) {
+                if !replaced.done.isEmpty { self.registerRelocationUndo("Replace", replaced.done) }
+                if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
+            }
+            if let error = replaced.error ?? result.error { throw error }
             return result.done.map(\.to)
         }
+    }
+
+    /// Registers several inverses as one undo step; undo runs them in reverse order (so a
+    /// replaced item is restored after the transfer that replaced it is reversed). Synchronous
+    /// on purpose: an undo group must never stay open across an `await`, or a ⌘Z arriving
+    /// meanwhile would hit an open group.
+    private func registerAsOneStep(if hasWork: Bool, _ body: () -> Void) {
+        // An empty group would still count as an undo step.
+        guard hasWork else { return }
+        guard let undoManager else { return body() }
+        undoManager.beginUndoGrouping()
+        body()
+        undoManager.endUndoGrouping()
     }
 
     // MARK: - New folder
@@ -169,16 +223,18 @@ final class FileActions {
     /// Pastes clipboard files into `folder`: moves after a cut (or when `forceMove`, Finder's ⌥⌘V),
     /// copies otherwise.
     @discardableResult
-    func paste(into folder: URL, forceMove: Bool = false) async throws -> [URL] {
+    func paste(
+        into folder: URL, forceMove: Bool = false, resolveConflicts: ConflictResolver? = nil
+    ) async throws -> [URL] {
         let (urls, isCut) = clipboard.read()
         let stamp = clipboard.changeCount
         guard !urls.isEmpty else { return [] }
-        guard isCut || forceMove else { return try await copy(urls, into: folder) }
+        guard isCut || forceMove else { return try await copy(urls, into: folder, resolveConflicts: resolveConflicts) }
         // A long move may finish after the user put something else on the clipboard;
         // only touch the clipboard if it still holds what was pasted.
         let clipboardUnchanged = { self.clipboard.changeCount == stamp }
         do {
-            let moved = try await move(urls, into: folder)
+            let moved = try await move(urls, into: folder, resolveConflicts: resolveConflicts)
             if !moved.isEmpty, clipboardUnchanged() { clipboard.write(moved, cut: false) }
             return moved
         } catch {
@@ -404,16 +460,55 @@ final class FileActions {
 
     // MARK: - Naming
 
-    /// Destinations for a batch. Names chosen earlier in the batch count as taken, so two items
-    /// called "x.txt" from different folders become "x.txt" and "x 2.txt".
-    nonisolated static func plan(_ urls: [URL], into folder: URL, copying: Bool) -> [FileTransfer] {
+    /// Destinations for a batch, asking `resolver` about each name clash in another folder.
+    /// Returns the transfers to perform and the existing items they replace.
+    static func resolvedPlan(
+        _ urls: [URL], into folder: URL, copying: Bool, resolver: ConflictResolver?
+    ) async throws -> (transfers: [FileTransfer], replacing: [URL]) {
         var reserved: Set<String> = []
-        return urls.map { source in
-            let copyStyle = copying && isSameFolder(source.deletingLastPathComponent(), folder)
-            let destination = uniqueDestination(for: source, in: folder, copyStyle: copyStyle, reserved: reserved)
+        var transfers: [FileTransfer] = []
+        var replacing: [URL] = []
+        var remembered: ConflictResolution?
+
+        for (index, source) in urls.enumerated() {
+            let sameFolder = isSameFolder(source.deletingLastPathComponent(), folder)
+            let candidate = folder.appendingPathComponent(source.lastPathComponent)
+            let key = candidate.lastPathComponent.lowercased()
+            let clashesInBatch = reserved.contains(key)
+            let clashesOnDisk = FileManager.default.fileExists(atPath: candidate.path)
+
+            var resolution = ConflictResolution.keepBoth
+            if !sameFolder, clashesOnDisk, !clashesInBatch, let resolver {
+                if let remembered {
+                    resolution = remembered
+                } else {
+                    let decision = await resolver(
+                        NameConflict(source: source, existing: candidate, remaining: urls.count - index - 1))
+                    resolution = decision.resolution
+                    if decision.applyToAll { remembered = decision.resolution }
+                }
+            }
+
+            let destination: URL
+            switch resolution {
+            case .skip:
+                continue
+            case .replace:
+                let existingPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+                let sourcePath = source.resolvingSymlinksInPath().standardizedFileURL.path
+                if sourcePath.hasPrefix(existingPath + "/") {
+                    throw FileActionError.cannotReplaceContainingFolder(candidate.lastPathComponent)
+                }
+                replacing.append(candidate)
+                destination = candidate
+            case .keepBoth:
+                destination = uniqueDestination(
+                    for: source, in: folder, copyStyle: copying && sameFolder, reserved: reserved)
+            }
             reserved.insert(destination.lastPathComponent.lowercased())
-            return FileTransfer(from: source, to: destination)
+            transfers.append(FileTransfer(from: source, to: destination))
         }
+        return (transfers, replacing)
     }
 
     /// Throws when `folder` is one of `urls` or lies inside one of them.
