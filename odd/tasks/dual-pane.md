@@ -18,7 +18,7 @@ Quoted from the reference site (fileosmac.com), Dual Pane section:
 
 ## Tasks
 
-- [ ] T1 S6 — conflict resolution in FileActions (keep both / replace / skip, apply to all, undoable replace) + prompt UI — inline
+- [ ] T1 S6 — conflict resolution in FileActions (keep both / replace / skip, apply to all, undoable replace) + prompt UI — inline — f801f72 (RED→GREEN, 99/99); Risk: item 1 (replace trashes existing items) → verifier
 - [ ] T2 S5 — copy progress via copyfile(3), cancellable transfer queue + progress UI — inline
 - [ ] T3 S1,S2,S3,S7 — window model with two panes: split, active pane, Tab, ⌘U, F5/F6, state restoration + split UI — inline
 - [ ] T4 S4 — drag and drop between panes and onto folders (move, ⌥ copies) — inline
