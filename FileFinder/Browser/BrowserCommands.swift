@@ -50,6 +50,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("-")
                 .disabled(browser?.iconSize.smaller == nil)
             Divider()
+            Button(browser?.showPreview == true ? "Hide Preview" : "Show Preview") {
+                browser?.showPreview.toggle()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
             Button(browser?.showHidden == true ? "Hide Hidden Files" : "Show Hidden Files") {
                 browser?.showHidden.toggle()
             }

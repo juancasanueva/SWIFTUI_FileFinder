@@ -31,6 +31,10 @@ struct BrowserWindow: View {
                     .padding(.vertical, 5)
             }
         }
+        .inspector(isPresented: $model.showPreview) {
+            PreviewPane(model: model)
+                .inspectorColumnWidth(min: 220, ideal: 280, max: 420)
+        }
         .navigationTitle(model.title)
         .toolbar { toolbar }
         .focusedSceneValue(\.browser, model)
@@ -90,6 +94,10 @@ struct BrowserWindow: View {
                 .disabled(!model.canGoBack)
             Button("Forward", systemImage: "chevron.right", action: model.goForward)
                 .disabled(!model.canGoForward)
+        }
+        ToolbarItem {
+            Button("Preview", systemImage: "sidebar.right") { model.showPreview.toggle() }
+                .help("Show or hide the preview pane (⇧⌘P)")
         }
         ToolbarItem {
             Picker("View", selection: $model.viewMode) {

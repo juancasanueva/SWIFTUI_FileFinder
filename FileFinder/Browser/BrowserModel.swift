@@ -19,6 +19,13 @@ enum SelectionMove {
     case left, right, up, down
 }
 
+/// What the preview pane shows for the current selection.
+enum PreviewSubject: Equatable {
+    case currentFolder(URL, itemCount: Int)
+    case item(FileItem)
+    case multiple(count: Int, totalBytes: Int64)
+}
+
 /// Why the current folder couldn't be listed.
 struct LoadFailure: Equatable {
     let message: String
@@ -48,6 +55,7 @@ final class BrowserModel {
         static let showHidden = "showHiddenFiles"
         static let viewMode = "viewMode"
         static let iconSize = "iconSize"
+        static let showPreview = "showPreview"
     }
 
     // MARK: Location and contents
@@ -94,6 +102,7 @@ final class BrowserModel {
     var showHidden: Bool { didSet { defaults.set(showHidden, forKey: Key.showHidden) } }
     var viewMode: BrowserViewMode { didSet { defaults.set(viewMode.rawValue, forKey: Key.viewMode) } }
     var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
+    var showPreview: Bool { didSet { defaults.set(showPreview, forKey: Key.showPreview) } }
 
     let actions: FileActions
     /// Measures one folder; injectable so tests can control timing.
@@ -116,6 +125,7 @@ final class BrowserModel {
         showHidden = defaults.bool(forKey: Key.showHidden)
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
+        showPreview = defaults.bool(forKey: Key.showPreview)
         actions.onBackgroundError = { [weak self] message in self?.alertMessage = message }
     }
 
@@ -140,6 +150,21 @@ final class BrowserModel {
 
     var statusText: String {
         StatusText.make(itemCount: items.count, selectedCount: selection.count, availableBytes: availableBytes)
+    }
+
+    var previewSubject: PreviewSubject {
+        let selected = selectedItems
+        switch selected.count {
+        case 0:
+            return .currentFolder(currentFolder, itemCount: items.count)
+        case 1:
+            return .item(selected[0])
+        default:
+            let total = selected.reduce(Int64(0)) { sum, item in
+                sum + (item.isDirectory ? folderStats[item.url]?.totalBytes ?? 0 : item.size ?? 0)
+            }
+            return .multiple(count: selected.count, totalBytes: total)
+        }
     }
 
     func sizeText(for item: FileItem) -> String {
