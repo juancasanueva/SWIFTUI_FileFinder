@@ -548,11 +548,18 @@ final class FileActions {
         return result
     }
 
-    /// Moves one item to the Trash and returns where it went.
+    /// Moves one item to the Trash and returns where it went. Throws if the Trash doesn't say
+    /// where, since the item could then never be put back.
     private nonisolated static func trashItem(_ url: URL) throws -> FileTransfer {
         var resulting: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-        return FileTransfer(from: url, to: (resulting as URL?) ?? url)
+        guard let trashed = resulting as URL? else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSFilePathErrorKey: url.path,
+                NSLocalizedDescriptionKey: "“\(url.lastPathComponent)” went to the Trash, but its new location is unknown, so nothing else was done.",
+            ])
+        }
+        return FileTransfer(from: url, to: trashed)
     }
 
     @concurrent private nonisolated static func performTrash(_ urls: [URL]) async -> BatchResult {
@@ -649,7 +656,8 @@ final class FileActions {
                 if sourcePath.hasPrefix(existingPath + "/") {
                     throw FileActionError.cannotReplaceContainingFolder(existing.lastPathComponent)
                 }
-                destination = existing
+                // The incoming item keeps its own name (and letter case), like Finder.
+                destination = folder.appendingPathComponent(source.lastPathComponent)
                 replacing.append(existing)
             case .keepBoth:
                 destination = uniqueDestination(

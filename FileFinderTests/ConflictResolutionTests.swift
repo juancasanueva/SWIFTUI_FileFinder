@@ -259,4 +259,42 @@ struct ConflictPromptTests {
         let later = try await actions.copy([source], into: dir.folder("c"))
         #expect(later.count == 1)
     }
+
+    @Test("A paste still queued when the window closes doesn't ask (and doesn't block the queue)")
+    func queuedPasteAfterCloseDoesNotAsk() async throws {
+        let dir = try TemporaryDirectory()
+        let source = try dir.file("a/x.txt", bytes: 1)
+        let target = try dir.folder("b")
+        let existing = try dir.file("b/x.txt", bytes: 2)
+        let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
+        let model = BrowserModel(start: target, actions: actions, defaults: defaults)
+        actions.copyToClipboard([source])
+
+        let first = Task { await model.paste() }
+        while model.pendingConflict == nil { await Task.yield() }
+        let second = Task { await model.paste() }
+        while actions.queuedOperations == 0 { await Task.yield() }
+        model.windowWillClose()
+        await first.value
+        await second.value
+
+        #expect(model.pendingConflict == nil)
+        #expect(try Data(contentsOf: existing).count == 2)
+    }
+
+    @Test("A replacing item keeps its own name's letter case")
+    func replaceKeepsIncomingCase() async throws {
+        let dir = try TemporaryDirectory()
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
+        let source = try dir.file("a/Foo.txt", bytes: 1)
+        let target = try dir.folder("b")
+        try dir.file("b/foo.txt", bytes: 2)
+
+        _ = try await actions.copy([source], into: target) { _ in ConflictDecision(resolution: .replace) }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == ["Foo.txt"])
+    }
 }
