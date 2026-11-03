@@ -55,7 +55,7 @@ private struct FileCard: View {
                 .background(isSelected ? Color.secondary.opacity(0.18) : .clear, in: .rect(cornerRadius: 8))
 
             if model.renamingURL == item.url {
-                RenameField(item: item) { model.commitRename(item, to: $0) } onCancel: { model.cancelRename() }
+                RenameField(item: item) { name in Task { await model.commitRename(item, to: name) } } onCancel: { model.cancelRename() }
                     .frame(width: model.iconSize.cardSide + 40)
             } else {
                 Text(item.name)

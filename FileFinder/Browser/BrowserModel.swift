@@ -14,6 +14,28 @@ enum IconSize: Int, CaseIterable {
     var smaller: IconSize? { IconSize(rawValue: rawValue - 1) }
 }
 
+/// Why the current folder couldn't be listed.
+struct LoadFailure: Equatable {
+    let message: String
+    /// Only permission errors are fixed by granting Full Disk Access.
+    let needsFullDiskAccess: Bool
+
+    init(_ error: any Error) {
+        message = error.localizedDescription
+        needsFullDiskAccess = Self.isPermissionError(error)
+    }
+
+    private static func isPermissionError(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == CocoaError.fileReadNoPermission.rawValue {
+            return true
+        }
+        let underlying = (nsError.userInfo[NSUnderlyingErrorKey] as? NSError) ?? nsError
+        return underlying.domain == NSPOSIXErrorDomain
+            && (underlying.code == Int(EPERM) || underlying.code == Int(EACCES))
+    }
+}
+
 /// State and behavior of one browser window.
 @Observable
 final class BrowserModel {
@@ -28,8 +50,10 @@ final class BrowserModel {
     private(set) var currentFolder: URL
     private(set) var items: [FileItem] = []
     private(set) var folderStats: [URL: FolderStats] = [:]
+    /// Folders whose size couldn't be measured (for example, unreadable ones).
+    private(set) var unmeasurableFolders: Set<URL> = []
     private(set) var availableBytes: Int64?
-    private(set) var loadError: String?
+    private(set) var loadFailure: LoadFailure?
     private var rawItems: [FileItem] = []
     /// Folders with a measurement in flight, so overlapping refreshes don't walk them twice.
     @ObservationIgnored private var measuring: Set<URL> = []
@@ -51,19 +75,27 @@ final class BrowserModel {
 
     // MARK: Preferences
 
-    var showHidden: Bool { didSet { UserDefaults.standard.set(showHidden, forKey: Key.showHidden) } }
-    var viewMode: BrowserViewMode { didSet { UserDefaults.standard.set(viewMode.rawValue, forKey: Key.viewMode) } }
-    var iconSize: IconSize { didSet { UserDefaults.standard.set(iconSize.rawValue, forKey: Key.iconSize) } }
+    @ObservationIgnored private let defaults: UserDefaults
+    var showHidden: Bool { didSet { defaults.set(showHidden, forKey: Key.showHidden) } }
+    var viewMode: BrowserViewMode { didSet { defaults.set(viewMode.rawValue, forKey: Key.viewMode) } }
+    var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
 
     let actions: FileActions
 
-    init(start: URL, actions: FileActions = FileActions()) {
-        let defaults = UserDefaults.standard
+    init(start: URL, actions: FileActions = FileActions(), defaults: UserDefaults = .standard) {
         currentFolder = start.canonical
         self.actions = actions
+        self.defaults = defaults
         showHidden = defaults.bool(forKey: Key.showHidden)
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
+        actions.onBackgroundError = { [weak self] message in self?.alertMessage = message }
+    }
+
+    /// Downloads when it exists, otherwise the home folder.
+    static func defaultStartFolder(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let downloads = home.appending(path: "Downloads")
+        return FileManager.default.fileExists(atPath: downloads.path) ? downloads : home
     }
 
     // MARK: Derived values
@@ -92,6 +124,7 @@ final class BrowserModel {
 
     func cardSubtitle(for item: FileItem) -> String {
         guard item.isNavigable else { return sizeText(for: item) }
+        if unmeasurableFolders.contains(item.url) { return "--" }
         guard let stats = folderStats[item.url] else { return "Calculating…" }
         let count = stats.itemCount == 1 ? "1 item" : "\(stats.itemCount) items"
         return "\(StatusText.formatBytes(stats.totalBytes)) · \(count)"
@@ -132,19 +165,21 @@ final class BrowserModel {
         renamingURL = nil
         quickLookURL = nil
         folderStats = [:]
+        unmeasurableFolders = []
         measuring = []
         items = []
         rawItems = []
+        loadFailure = nil
     }
 
+    /// Opens files with their default app; navigates into the first folder of the selection.
     func open(_ urls: some Collection<URL>) {
         let targets = items.filter { urls.contains($0.url) }
-        if targets.count == 1, let folder = targets.first, folder.isNavigable {
-            navigate(to: folder.url)
-            return
+        for file in targets where !file.isNavigable {
+            NSWorkspace.shared.open(file.url)
         }
-        for item in targets {
-            if item.isNavigable { navigate(to: item.url) } else { NSWorkspace.shared.open(item.url) }
+        if let folder = targets.first(where: \.isNavigable) {
+            navigate(to: folder.url)
         }
     }
 
@@ -165,7 +200,8 @@ final class BrowserModel {
                 await reload()
                 group.addTask { await self.measureFolders() }
             }
-            group.cancelAll()
+            // Leaving the group waits for measurements, so they finish even if watching
+            // isn't possible; cancelling `run()` still cancels them.
         }
         // The stream ends when the folder is deleted or renamed: step out of it.
         if !Task.isCancelled, folder == currentFolder, !FileManager.default.fileExists(atPath: folder.path) {
@@ -179,8 +215,9 @@ final class BrowserModel {
         do {
             let listing = try await Self.list(folder, showHidden: hidden)
             guard folder == currentFolder, hidden == showHidden else { return }
+            invalidateChangedFolders(previous: rawItems, current: listing)
             rawItems = listing
-            loadError = nil
+            loadFailure = nil
             applySort()
             selection.formIntersection(listing.map(\.url))
             availableBytes = await Self.freeSpace(at: folder)
@@ -188,13 +225,26 @@ final class BrowserModel {
             guard folder == currentFolder, hidden == showHidden else { return }
             rawItems = []
             items = []
-            loadError = error.localizedDescription
+            loadFailure = LoadFailure(error)
         }
     }
 
-    private func measureFolders() async {
+    /// Drops cached sizes of sub-folders that disappeared or whose contents changed (a folder's
+    /// modification date changes when entries are added, removed or renamed directly inside it).
+    private func invalidateChangedFolders(previous: [FileItem], current: [FileItem]) {
+        let currentDates = Dictionary(current.map { ($0.url, $0.modificationDate) }, uniquingKeysWith: { a, _ in a })
+        for old in previous where old.isDirectory && currentDates[old.url] != .some(old.modificationDate) {
+            folderStats[old.url] = nil
+            unmeasurableFolders.remove(old.url)
+        }
+    }
+
+    func measureFolders() async {
         let pending = rawItems
-            .filter { $0.isDirectory && folderStats[$0.url] == nil && !measuring.contains($0.url) }
+            .filter {
+                $0.isDirectory && folderStats[$0.url] == nil
+                    && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
+            }
             .map(\.url)
         measuring.formUnion(pending)
         defer { measuring.subtract(pending) }
@@ -206,7 +256,7 @@ final class BrowserModel {
             }
             for await (url, stats) in group {
                 if Task.isCancelled { group.cancelAll(); break }
-                if let stats { folderStats[url] = stats }
+                if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
                 if let next = queue.next() {
                     group.addTask { (next, await Self.measure(next)) }
                 }
@@ -265,13 +315,16 @@ final class BrowserModel {
         renamingURL = selection.first
     }
 
-    func commitRename(_ item: FileItem, to newName: String) {
+    func commitRename(_ item: FileItem, to newName: String) async {
         guard renamingURL == item.url else { return }
         renamingURL = nil
-        perform {
+        do {
             let renamed = try actions.rename(item.url, to: newName)
             selection = [renamed.canonical]
+        } catch {
+            alertMessage = error.localizedDescription
         }
+        await reload()
     }
 
     func cancelRename() { renamingURL = nil }
@@ -281,27 +334,28 @@ final class BrowserModel {
     func copySelection() { actions.copyToClipboard(selectedURLs) }
     func cutSelection() { actions.cutToClipboard(selectedURLs) }
 
-    func paste(forceMove: Bool = false) {
-        perform {
-            let pasted = try actions.paste(into: currentFolder, forceMove: forceMove)
-            if !pasted.isEmpty { selection = Set(pasted.map(\.canonical)) }
+    func paste(forceMove: Bool = false) async {
+        let folder = currentFolder
+        await perform {
+            let pasted = try await actions.paste(into: folder, forceMove: forceMove)
+            if !pasted.isEmpty, folder == currentFolder { selection = Set(pasted.map(\.canonical)) }
         }
     }
 
-    func trashSelection() {
+    func trashSelection() async {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
-        perform { try actions.trash(urls) }
+        await perform { try await actions.trash(urls) }
     }
 
     /// Runs a file operation, surfaces errors, and refreshes right away instead of waiting
     /// for the watcher.
-    private func perform(_ operation: () throws -> Void) {
+    private func perform(_ operation: () async throws -> Void) async {
         do {
-            try operation()
+            try await operation()
         } catch {
             alertMessage = error.localizedDescription
         }
-        Task { await reload() }
+        await reload()
     }
 }

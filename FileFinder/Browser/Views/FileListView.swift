@@ -40,7 +40,7 @@ struct FileListView: View {
         HStack(spacing: 6) {
             FileIconView(item: item, side: model.iconSize.rowIcon)
             if model.renamingURL == item.url {
-                RenameField(item: item) { model.commitRename(item, to: $0) } onCancel: { model.cancelRename() }
+                RenameField(item: item) { name in Task { await model.commitRename(item, to: name) } } onCancel: { model.cancelRename() }
             } else {
                 Text(item.name)
                     .lineLimit(1)
@@ -58,7 +58,7 @@ struct FileContextMenu: View {
 
     var body: some View {
         if urls.isEmpty {
-            Button("Paste") { model.paste() }.disabled(!model.actions.canPaste)
+            Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
         } else {
             Button("Open") { model.open(urls) }
             Button("Quick Look") {
@@ -79,11 +79,11 @@ struct FileContextMenu: View {
                 model.selection = urls
                 model.cutSelection()
             }
-            Button("Paste") { model.paste() }.disabled(!model.actions.canPaste)
+            Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
             Divider()
             Button("Move to Trash") {
                 model.selection = urls
-                model.trashSelection()
+                Task { await model.trashSelection() }
             }
         }
     }

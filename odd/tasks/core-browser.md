@@ -19,6 +19,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - S10 "Copy, cut, and paste work with Finder."
 - S11 "Undo for moves, copies, renames, and Trash moves (⌘Z)."
 - S12 "Cards show real previews: the first page of a document, a photo, a video frame, or a slide."
+- S14 User: "fix the review findings first" — the review findings recorded in L8 (all code findings; R1 sandbox is an accepted decision, no change).
 - S13 App runs unsandboxed so it can browse the whole disk like Finder (assumption: required for a Finder replacement; Full Disk Access stays optional).
 
 ## Tasks
@@ -27,6 +28,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [x] T2 S10,S11 — file operations (rename, trash, copy, move, paste from pasteboard) with undo, with tests — inline — 4377a74 (GREEN 21/21; RED not run separately)
 - [x] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline — f71101a (GREEN 33/33)
 - [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
+- [ ] T5 S14 — fix review findings: background file ops, reported undo failures, copy redo, partial cut-paste retry, folder stats invalidation/failure state, watcher-failure measuring, sidebar I/O off body, accurate load errors, multi-folder open, BrowserModel tests — inline
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -41,3 +43,4 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L7 Verifier: B1 copy-into-itself recursion, P1 watcher started after measuring, P2 ⌘⌫ active while typing → fixed in 07902fb; recheck: all fixed. New advisory (duplicate measurements) fixed in 77796b7.
 - L8 Native review (risk, resilience, reliability) approved with 12 non-blocking findings; acknowledged, authority burned. Follow-ups: file ops run on the main actor (big copies freeze UI); undo failures are silent; copy undo has no redo; folder stats go stale and failed measurements show "Calculating…" forever; sidebar does disk I/O in body; load error always suggests Full Disk Access; opening several folders navigates to each; BrowserModel has no tests.
 - L9 Next: user runs the app to check the keyboard interactions; then next slice (New Folder, card arrow keys, preview pane) or the follow-ups above.
+- L10 (2026-11-03) User: "fix the review findings first"

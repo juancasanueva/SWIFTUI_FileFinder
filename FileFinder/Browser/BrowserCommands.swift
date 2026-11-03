@@ -13,7 +13,7 @@ struct BrowserCommands: Commands {
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut("o")
                 .disabled(!hasSelection || isTyping)
-            Button("Move to Trash") { browser?.trashSelection() }
+            Button("Move to Trash") { Task { await browser?.trashSelection() } }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(!hasSelection || isTyping)
         }
@@ -25,9 +25,9 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("x")
             Button("Copy") { textOr(#selector(NSText.copy(_:))) { browser?.copySelection() } }
                 .keyboardShortcut("c")
-            Button("Paste") { textOr(#selector(NSText.paste(_:))) { browser?.paste() } }
+            Button("Paste") { textOr(#selector(NSText.paste(_:))) { Task { await browser?.paste() } } }
                 .keyboardShortcut("v")
-            Button("Move Item Here") { browser?.paste(forceMove: true) }
+            Button("Move Item Here") { Task { await browser?.paste(forceMove: true) } }
                 .keyboardShortcut("v", modifiers: [.command, .option])
                 .disabled(isTyping)
             Button("Select All") { textOr(#selector(NSText.selectAll(_:))) { browser?.selectAll() } }

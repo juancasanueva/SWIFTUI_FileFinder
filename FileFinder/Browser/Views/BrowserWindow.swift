@@ -9,8 +9,7 @@ extension FocusedValues {
 
 struct BrowserWindow: View {
     @Environment(\.undoManager) private var undoManager
-    @State private var model = BrowserModel(
-        start: FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads"))
+    @State private var model = BrowserModel(start: BrowserModel.defaultStartFolder())
 
     var body: some View {
         NavigationSplitView {
@@ -53,15 +52,27 @@ struct BrowserWindow: View {
 
     @ViewBuilder
     private var content: some View {
-        if let error = model.loadError {
-            ContentUnavailableView {
-                Label("Can't open this folder", systemImage: "lock")
-            } description: {
-                Text("\(error)\n\nGrant Full Disk Access to browse every folder, like Finder.")
-            } actions: {
-                Button("Open Privacy Settings") {
-                    let link = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-                    if let url = URL(string: link) { NSWorkspace.shared.open(url) }
+        if let failure = model.loadFailure {
+            if failure.needsFullDiskAccess {
+                ContentUnavailableView {
+                    Label("Can't open this folder", systemImage: "lock")
+                } description: {
+                    Text("\(failure.message)\n\nGrant Full Disk Access to browse every folder, like Finder.")
+                } actions: {
+                    Button("Open Privacy Settings") {
+                        let link = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+                        if let url = URL(string: link) { NSWorkspace.shared.open(url) }
+                    }
+                }
+            } else {
+                ContentUnavailableView {
+                    Label("Can't open this folder", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(failure.message)
+                } actions: {
+                    Button("Go to Home Folder") {
+                        model.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+                    }
                 }
             }
         } else {
