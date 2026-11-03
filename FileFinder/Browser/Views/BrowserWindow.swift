@@ -33,7 +33,7 @@ private struct BrowserWindowContent: View {
     var body: some View {
         @Bindable var active = window.active
         NavigationSplitView {
-            SidebarView(model: active)
+            SidebarView(model: active, window: window)
         } detail: {
             VStack(spacing: 0) {
                 HSplitView {
@@ -58,6 +58,14 @@ private struct BrowserWindowContent: View {
         .onAppear { window.actions.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in window.actions.undoManager = manager }
         .onDisappear { window.windowWillClose() }
+        .sheet(item: Binding(get: { window.namingRequest }, set: { if $0 == nil { window.cancelNaming() } })) { request in
+            WorkspaceNameSheet(
+                title: request == .create ? "New Workspace" : "Rename Workspace",
+                actionTitle: request == .create ? "Create" : "Rename",
+                initialName: window.currentName(for: request),
+                onSave: { name in Task { await window.finishNaming(name) } },
+                onCancel: window.cancelNaming)
+        }
         .frame(minWidth: 720, minHeight: 420)
     }
 

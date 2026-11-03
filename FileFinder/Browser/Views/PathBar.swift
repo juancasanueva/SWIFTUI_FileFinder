@@ -12,6 +12,13 @@ struct PathBar: View {
         HStack(spacing: 4) {
             if model.isEditingPath {
                 editor
+            } else if let workspace = model.currentWorkspace {
+                Label(workspace.name, systemImage: "square.stack.3d.up")
+                    .lineLimit(1)
+                Spacer()
+                Text("Workspace · nothing is copied or moved")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else {
                 breadcrumbs
             }

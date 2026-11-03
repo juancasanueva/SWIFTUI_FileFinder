@@ -13,7 +13,10 @@ struct BrowserCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New Folder") { Task { await browser?.newFolder() } }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(browser == nil || isTyping)
+                .disabled(browser == nil || isTyping || browser?.isShowingWorkspace == true)
+            Button("New Workspace…") { window?.requestNewWorkspace() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(window == nil || isTyping)
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut("o")
                 .disabled(!hasSelection || isTyping)
@@ -25,7 +28,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut(Self.functionKey(NSF6FunctionKey), modifiers: [])
                 .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)
             Divider()
-            Button("Move to Trash") { Task { await browser?.trashSelection() } }
+            // In a workspace ⌘⌫ only removes entries; nothing is ever trashed from there.
+            Button(browser?.isShowingWorkspace == true ? "Remove from Workspace" : "Move to Trash") {
+                Task { await browser?.trashSelection() }
+            }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(!hasSelection || isTyping)
         }
@@ -99,6 +105,11 @@ struct BrowserCommands: Commands {
             Divider()
             Button("Go to Folder…") { browser?.isEditingPath = true }
                 .keyboardShortcut("l")
+            Divider()
+            ForEach(Array((window?.workspaces.workspaces ?? []).prefix(9).enumerated()), id: \.element.id) { index, workspace in
+                Button(workspace.name) { Task { await window?.openWorkspace(number: index + 1) } }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .control)
+            }
         }
     }
 

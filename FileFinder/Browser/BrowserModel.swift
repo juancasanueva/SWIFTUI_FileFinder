@@ -134,6 +134,7 @@ final class BrowserModel {
         actions: FileActions = FileActions(),
         defaults: UserDefaults = .standard,
         workspaces: WorkspaceStore = .shared,
+        showing workspace: Workspace.ID? = nil,
         deepRefreshInterval: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
@@ -142,6 +143,8 @@ final class BrowserModel {
         self.actions = actions
         self.defaults = defaults
         self.workspaces = workspaces
+        // A restored workspace that no longer exists just leaves the pane on its folder.
+        workspaceID = workspace.flatMap { workspaces.workspace($0) != nil ? $0 : nil }
         self.measurer = measurer
         self.pacer = DeepRefreshPacer(baseInterval: deepRefreshInterval)
         self.now = now
@@ -289,6 +292,12 @@ final class BrowserModel {
     }
 
     func openSelection() { open(selection) }
+
+    /// Opens the folder an item really lives in, with the item selected.
+    func showInEnclosingFolder(_ item: FileItem) {
+        navigate(to: item.url.deletingLastPathComponent())
+        selection = [item.url]
+    }
 
     // MARK: Loading
 
@@ -669,14 +678,20 @@ final class BrowserModel {
         return session.items
     }
 
+    /// The items a drop really carries: the whole dragged selection when it's our drag.
+    static func draggedItems(for urls: [URL]) -> [URL] {
+        let items = session(for: urls.map(\.canonical)) ?? urls
+        endDrag()
+        return items
+    }
+
     /// What the views call on a drop: onto a folder goes into it, onto anything else into the
     /// current folder; ⌥ held copies.
     func handleDrop(_ urls: [URL], onto item: FileItem?) {
         let folderTarget = item.flatMap { $0.isNavigable ? $0.url : nil }
         // Dropped onto the workspace itself (not onto one of its folders): just add the items.
         if folderTarget == nil, let workspaceID {
-            let items = Self.session(for: urls.map(\.canonical)) ?? urls
-            Self.endDrag()
+            let items = Self.draggedItems(for: urls)
             Task { await addToWorkspace(items, workspaceID) }
             return
         }

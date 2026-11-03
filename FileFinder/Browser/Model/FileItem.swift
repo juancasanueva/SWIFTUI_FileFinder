@@ -22,6 +22,8 @@ nonisolated struct FileItem: Identifiable, Hashable, Sendable {
     // Non-optional keys so `Table` columns can sort with `KeyPathComparator`.
     var sortDate: Date { modificationDate ?? .distantPast }
     var sortSize: Int64 { size ?? -1 }
+    /// The folder the item lives in, for workspaces (which mix items from many places).
+    var locationPath: String { url.deletingLastPathComponent().path }
 
     static let finderOrder = FinderOrder()
 }

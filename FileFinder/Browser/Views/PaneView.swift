@@ -11,6 +11,20 @@ struct PaneView: View {
     let onActivate: () -> Void
 
     var body: some View {
+        layout
+            .overlay(alignment: .top) {
+                if showsActiveMarker && isActive {
+                    Rectangle().fill(Color.accentColor).frame(height: 2)
+                }
+            }
+            .simultaneousGesture(TapGesture().onEnded(onActivate))
+            // Table clicks don't reach SwiftUI gestures; selecting or navigating also activates.
+            .onChange(of: model.selection) { _, selection in if !selection.isEmpty { onActivate() } }
+            .onChange(of: model.location) { onActivate() }
+            .modifier(PaneBehavior(model: model))
+    }
+
+    private var layout: some View {
         VStack(spacing: 0) {
             PathBar(model: model)
                 .background(showsActiveMarker && isActive ? Color.accentColor.opacity(0.12) : .clear)
@@ -19,6 +33,9 @@ struct PaneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onKeyPress(.space, action: handleSpace)
                 .onKeyPress(.return, action: handleReturn)
+            if !model.missingEntries.isEmpty {
+                MissingEntriesBar(model: model)
+            }
             Divider()
             Text(model.statusText)
                 .font(.caption)
@@ -26,29 +43,6 @@ struct PaneView: View {
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 5)
-        }
-        .overlay(alignment: .top) {
-            if showsActiveMarker && isActive {
-                Rectangle().fill(Color.accentColor).frame(height: 2)
-            }
-        }
-        .simultaneousGesture(TapGesture().onEnded(onActivate))
-        // Table clicks don't reach SwiftUI gestures; selecting or navigating also activates.
-        .onChange(of: model.selection) { _, selection in if !selection.isEmpty { onActivate() } }
-        .onChange(of: model.currentFolder) { onActivate() }
-        .task(id: model.watchKey) { await model.run() }
-        .quickLookPreview($model.quickLookURL, in: model.items.map(\.url))
-        .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in
-            ConflictSheet(conflict: conflict) { model.answerConflict($0) }
-        }
-        .alert(
-            "The operation couldn't be completed.",
-            isPresented: Binding(get: { model.alertMessage != nil }, set: { if !$0 { model.alertMessage = nil } }),
-            presenting: model.alertMessage
-        ) { _ in
-            Button("OK") { model.alertMessage = nil }
-        } message: { message in
-            Text(message)
         }
     }
 
@@ -95,5 +89,61 @@ struct PaneView: View {
         guard !model.isTyping, model.selection.count == 1 else { return .ignored }
         model.beginRename()
         return .handled
+    }
+}
+
+/// Workspace items that can't be found anymore (deleted, or moved to the Trash).
+private struct MissingEntriesBar: View {
+    let model: BrowserModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.folder").foregroundStyle(.secondary)
+                Text(summary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+                Button("Remove from Workspace") {
+                    model.removeFromWorkspace(Set(model.missingEntries.map(\.id)))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+
+    private var summary: String {
+        let names = model.missingEntries.map(\.name).joined(separator: ", ")
+        let count = model.missingEntries.count
+        return "\(count) item\(count == 1 ? "" : "s") can't be found: \(names)"
+    }
+}
+
+/// Loading, watching, Quick Look, the conflict prompt and error alerts of one pane.
+private struct PaneBehavior: ViewModifier {
+    @Bindable var model: BrowserModel
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: model.watchKey) { await model.run() }
+            // A workspace has no folder to watch: reload when its entries change (here or elsewhere).
+            .onChange(of: model.currentWorkspace?.entries) { Task { await model.reload() } }
+            .quickLookPreview($model.quickLookURL, in: model.items.map(\.url))
+            .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in
+                ConflictSheet(conflict: conflict) { model.answerConflict($0) }
+            }
+            .alert(
+                "The operation couldn't be completed.",
+                isPresented: Binding(get: { model.alertMessage != nil }, set: { if !$0 { model.alertMessage = nil } }),
+                presenting: model.alertMessage
+            ) { _ in
+                Button("OK") { model.alertMessage = nil }
+            } message: { message in
+                Text(message)
+            }
     }
 }

@@ -12,6 +12,17 @@ struct FileListView: View {
             }
             .width(min: 180, ideal: 320)
 
+            if model.isShowingWorkspace {
+                // A workspace mixes items from different places: show where each one is.
+                TableColumn("Location", value: \.locationPath) { item in
+                    Text(item.locationPath)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                .width(min: 120, ideal: 220)
+            }
+
             TableColumn("Date Modified", value: \.sortDate) { item in
                 Text(item.modificationDate?.formatted(date: .abbreviated, time: .shortened) ?? "--")
                     .foregroundStyle(.secondary)
@@ -71,8 +82,10 @@ struct FileContextMenu: View {
 
     var body: some View {
         if urls.isEmpty {
-            Button("New Folder") { Task { await model.newFolder() } }
-            Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
+            if !model.isShowingWorkspace {
+                Button("New Folder") { Task { await model.newFolder() } }
+                Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
+            }
         } else {
             Button("Open") { model.open(urls) }
             Button("Quick Look") {
@@ -93,11 +106,43 @@ struct FileContextMenu: View {
                 model.selection = urls
                 model.cutSelection()
             }
-            Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
+            if !model.isShowingWorkspace {
+                Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
+            }
             Divider()
-            Button("Move to Trash") {
-                model.selection = urls
-                Task { await model.trashSelection() }
+            if model.isShowingWorkspace {
+                if urls.count == 1, let item = model.items.first(where: { urls.contains($0.url) }) {
+                    Button("Show in Enclosing Folder") { model.showInEnclosingFolder(item) }
+                }
+                Button("Remove from Workspace") {
+                    model.selection = urls
+                    Task { await model.removeSelectionFromWorkspace() }
+                }
+            } else {
+                AddToWorkspaceMenu(model: model, urls: urls)
+                Button("Move to Trash") {
+                    model.selection = urls
+                    Task { await model.trashSelection() }
+                }
+            }
+        }
+    }
+}
+
+/// "Add to Workspace ▸" with every workspace, plus one made from the items.
+struct AddToWorkspaceMenu: View {
+    let model: BrowserModel
+    let urls: Set<URL>
+
+    var body: some View {
+        Menu("Add to Workspace") {
+            ForEach(model.workspaces.workspaces) { workspace in
+                Button(workspace.name) { Task { await model.addToWorkspace(Array(urls), workspace.id) } }
+            }
+            if !model.workspaces.workspaces.isEmpty { Divider() }
+            Button("New Workspace with Selection") {
+                let workspace = model.workspaces.create()
+                Task { await model.addToWorkspace(Array(urls), workspace.id) }
             }
         }
     }
