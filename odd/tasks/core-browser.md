@@ -30,7 +30,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [x] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline — f71101a (GREEN 33/33)
 - [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
 - [x] T5 S14 — fix review findings — inline — 814fc91, ca57e40; 58/58 tests (3 runs); verifier PASS after one correction; native review review-21beb81078489c20 approved + acknowledged
-- [ ] T6 S15 — fix the 5 smaller issues — inline
+- [x] T6 S15 — fix the 5 smaller issues — inline — cdbe8e5, 1927fe1, 67df663; 67/67 tests (3 runs); verifier PASS after two corrections; native review approved + acknowledged
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -54,3 +54,4 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L16 T6 first pass cdbe8e5 (64 tests, RED observed for issues 1, 2, 4, 5). Verifier: issues 1-4 fixed; blocker B1 in 5 — FSEvents batches queued faster than the consumer drained them, so busy trees (~/Library) were re-walked non-stop and flickered to "Calculating…". Advisories: A2 "/" root never matched, A3 stale changedWhileMeasuring.
 - L17 Correction 1927fe1: deep changes coalesced into one pending set, refreshed every 2 s, each folder at most once per 10 s, previous size kept during refresh; no subtree watching at "/"; root prefix fixed; changedWhileMeasuring removed. RED→GREEN for busy-folder and root tests; 66/66, 3 runs. Recheck pending.
 - L18 Recheck of 1927fe1: B1 partially fixed (pacing stamped at walk start, so walks longer than the interval ran back to back). Second correction 67df663: lastDeepRefresh stamped when any walk finishes; interval injectable. RED→GREEN slowWalksArePaced; 67/67, 3 runs. Final recheck: B1 fixed.
+- L19 Third native review approved with non-blocking findings (follow-ups): a huge busy tree (~/Library seen from home with hidden files shown) is still re-walked every walk-duration + 10 s; a folder that once failed to measure is never refreshed by deep changes; the busy-folder and pacing tests depend on wall-clock timing and could be flaky on slow machines.
