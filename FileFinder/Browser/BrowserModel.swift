@@ -535,6 +535,43 @@ final class BrowserModel {
         }
     }
 
+    // MARK: Drag and drop
+
+    /// The drag in flight: the item grabbed and everything it carries. App-wide, like a drag.
+    private static var dragSession: (lead: URL, items: [URL])?
+
+    /// Starts dragging `item`: the whole selection when the item is part of it. The pasteboard
+    /// carries the grabbed item's file URL, so Finder and other apps accept the drag too.
+    func beginDrag(_ item: FileItem) -> NSItemProvider {
+        let items = selection.contains(item.url) ? selectedURLs : [item.url]
+        Self.dragSession = (item.url, items)
+        return NSItemProvider(object: item.url as NSURL)
+    }
+
+    static func endDrag() { dragSession = nil }
+
+    /// Drops items into `folder`: moves them, or copies them when `copying` (⌥ held).
+    /// Returns false when there was nothing to do.
+    @discardableResult
+    func drop(_ urls: [URL], into folder: URL, copying: Bool) async -> Bool {
+        let dropped = urls.map(\.canonical)
+        var items = dropped
+        if let session = Self.dragSession, dropped.contains(session.lead.canonical) {
+            items = session.items
+        }
+        Self.endDrag()
+        let target = folder.canonical
+        items = items.filter { $0 != target }   // a folder dropped onto itself
+        guard !items.isEmpty else { return false }
+        await perform {
+            let results = copying
+                ? try await actions.copy(items, into: target, resolveConflicts: conflictResolver)
+                : try await actions.move(items, into: target, resolveConflicts: conflictResolver)
+            if target == currentFolder, !results.isEmpty { selection = Set(results.map(\.canonical)) }
+        }
+        return true
+    }
+
     // MARK: Name conflicts
 
     /// Asks the user through `pendingConflict`; operations wait until `answerConflict`.

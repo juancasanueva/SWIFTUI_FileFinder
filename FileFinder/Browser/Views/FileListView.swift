@@ -6,7 +6,7 @@ struct FileListView: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        Table(model.items, selection: $model.selection, sortOrder: $model.sortOrder) {
+        Table(of: FileItem.self, selection: $model.selection, sortOrder: $model.sortOrder) {
             TableColumn("Name", value: \.name, comparator: .localizedStandard) { item in
                 nameCell(item)
             }
@@ -29,6 +29,20 @@ struct FileListView: View {
                 Text(item.kind).foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 140)
+        } rows: {
+            ForEach(model.items) { item in
+                TableRow(item)
+                    .itemProvider { model.beginDrag(item) }
+                    // Onto a folder row: into that folder; onto any other row: into this folder.
+                    .dropDestination(for: URL.self) { urls in
+                        let target = item.isNavigable ? item.url : model.currentFolder
+                        Task { await model.drop(urls, into: target, copying: NSEvent.modifierFlags.contains(.option)) }
+                    }
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            Task { await model.drop(urls, into: model.currentFolder, copying: NSEvent.modifierFlags.contains(.option)) }
+            return true
         }
         .focused($isFocused)
         .onChange(of: model.focusRequest) { isFocused = true }
