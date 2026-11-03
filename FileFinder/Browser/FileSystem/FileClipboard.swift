@@ -28,4 +28,7 @@ final class FileClipboard {
     }
 
     var hasFiles: Bool { !read().urls.isEmpty }
+
+    /// Changes whenever anyone writes to the pasteboard.
+    var changeCount: Int { pasteboard.changeCount }
 }

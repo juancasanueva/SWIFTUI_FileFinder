@@ -26,51 +26,70 @@ nonisolated struct FileTransfer: Equatable, Sendable {
 nonisolated struct BatchResult: Sendable {
     var done: [FileTransfer] = []
     var error: (any Error)?
+    /// File number (inode) of each created copy, keyed by path, to recognize it later.
+    var fileNumbers: [String: Int] = [:]
 }
 
-/// Mutating file operations. Disk work runs off the main actor; every completed step registers
-/// its inverse on `undoManager`. Undo/redo work runs in the background, one batch at a time, and
-/// reports failures through `onBackgroundError`.
+/// Copies made by one copy action. Undo and redo share it, so undo only trashes items that are
+/// still the very files this action created.
+private final class CopyRecord {
+    let transfers: [FileTransfer]
+    var fileNumbers: [String: Int]
+
+    init(transfers: [FileTransfer], fileNumbers: [String: Int]) {
+        self.transfers = transfers
+        self.fileNumbers = fileNumbers
+    }
+}
+
+nonisolated struct CopyChangedError: LocalizedError {
+    let name: String
+    var errorDescription: String? {
+        "“\(name)” was replaced after it was copied, so it was left where it is."
+    }
+}
+
+/// Mutating file operations. Disk work runs off the main actor, and every operation, including
+/// undo and redo work, runs on one serial queue so batches never interleave. Each completed step
+/// registers its inverse on `undoManager`; failures of undo/redo work go to `onBackgroundError`.
 @Observable
 final class FileActions {
     @ObservationIgnored var undoManager: UndoManager?
     @ObservationIgnored let clipboard: FileClipboard
     /// Receives errors from undo/redo work, which has no caller to throw to.
     @ObservationIgnored var onBackgroundError: ((String) -> Void)?
-    /// Tail of the serial chain of disk work, so batches never interleave.
+    /// Tail of the serial queue of disk work.
     @ObservationIgnored private var lastWork: Task<Void, Never>?
-
-    private var fileManager: FileManager { .default }
 
     init(clipboard: FileClipboard = .shared) {
         self.clipboard = clipboard
     }
 
-    /// Waits until all queued undo/redo work has finished.
+    /// Waits until all queued work has finished.
     func waitForPendingWork() async {
         await lastWork?.value
     }
 
     // MARK: - Rename
 
-    /// Renames in place. Synchronous: a rename never moves data across volumes.
     @discardableResult
-    func rename(_ url: URL, to newName: String) throws -> URL {
+    func rename(_ url: URL, to newName: String) async throws -> URL {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !name.contains("/") else { throw FileActionError.invalidName }
         let oldName = url.lastPathComponent
         guard name != oldName else { return url }
 
-        let destination = url.deletingLastPathComponent().appendingPathComponent(name)
-        let isCaseOnlyChange = name.lowercased() == oldName.lowercased()
-        if !isCaseOnlyChange, fileManager.fileExists(atPath: destination.path) {
-            throw FileActionError.nameTaken(name)
+        return try await serialized {
+            let destination = url.deletingLastPathComponent().appendingPathComponent(name)
+            let isCaseOnlyChange = name.lowercased() == oldName.lowercased()
+            if !isCaseOnlyChange, FileManager.default.fileExists(atPath: destination.path) {
+                throw FileActionError.nameTaken(name)
+            }
+            let result = await Self.performMoves([FileTransfer(from: url, to: destination)])
+            if let error = result.error { throw error }
+            self.registerRelocationUndo("Rename", result.done)
+            return destination
         }
-        try fileManager.moveItem(at: url, to: destination)
-        registerUndo("Rename") { actions in
-            do { try actions.rename(destination, to: oldName) } catch { actions.report(error) }
-        }
-        return destination
     }
 
     // MARK: - Copy / Move
@@ -79,34 +98,39 @@ final class FileActions {
     @discardableResult
     func copy(_ urls: [URL], into folder: URL) async throws -> [URL] {
         try Self.rejectNesting(urls, into: folder)
-        await waitForPendingWork()
-        let plan = Self.plan(urls, into: folder, copying: true)
-        let result = await Self.performCopies(plan)
-        if !result.done.isEmpty { registerCopyUndo(result.done) }
-        if let error = result.error { throw error }
-        return result.done.map(\.to)
+        return try await serialized {
+            // Planned inside the queue, so earlier operations' results count as taken names.
+            let plan = Self.plan(urls, into: folder, copying: true)
+            let result = await Self.performCopies(plan)
+            if !result.done.isEmpty {
+                self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+            }
+            if let error = result.error { throw error }
+            return result.done.map(\.to)
+        }
     }
 
     /// Moves items into `folder`. Items already in `folder` are skipped. Returns the new URLs.
     @discardableResult
     func move(_ urls: [URL], into folder: URL) async throws -> [URL] {
         try Self.rejectNesting(urls, into: folder)
-        await waitForPendingWork()
-        let plan = Self.plan(urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) },
-                             into: folder, copying: false)
-        let result = await Self.performMoves(plan)
-        if !result.done.isEmpty { registerRelocationUndo("Move", result.done) }
-        if let error = result.error { throw error }
-        return result.done.map(\.to)
+        return try await serialized {
+            let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
+            let result = await Self.performMoves(Self.plan(sources, into: folder, copying: false))
+            if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
+            if let error = result.error { throw error }
+            return result.done.map(\.to)
+        }
     }
 
     // MARK: - Trash
 
     func trash(_ urls: [URL]) async throws {
-        await waitForPendingWork()
-        let result = await Self.performTrash(urls)
-        if !result.done.isEmpty { registerRelocationUndo("Move to Trash", result.done) }
-        if let error = result.error { throw error }
+        try await serialized {
+            let result = await Self.performTrash(urls)
+            if !result.done.isEmpty { self.registerRelocationUndo("Move to Trash", result.done) }
+            if let error = result.error { throw error }
+        }
     }
 
     // MARK: - Clipboard
@@ -120,16 +144,20 @@ final class FileActions {
     @discardableResult
     func paste(into folder: URL, forceMove: Bool = false) async throws -> [URL] {
         let (urls, isCut) = clipboard.read()
+        let stamp = clipboard.changeCount
         guard !urls.isEmpty else { return [] }
         guard isCut || forceMove else { return try await copy(urls, into: folder) }
+        // A long move may finish after the user put something else on the clipboard;
+        // only touch the clipboard if it still holds what was pasted.
+        let clipboardUnchanged = { self.clipboard.changeCount == stamp }
         do {
             let moved = try await move(urls, into: folder)
-            if !moved.isEmpty { clipboard.write(moved, cut: false) }
+            if !moved.isEmpty, clipboardUnchanged() { clipboard.write(moved, cut: false) }
             return moved
         } catch {
             // Keep what wasn't moved on the clipboard so the paste can be retried.
-            if isCut {
-                let remaining = urls.filter { fileManager.fileExists(atPath: $0.path) }
+            if isCut, clipboardUnchanged() {
+                let remaining = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
                 clipboard.write(remaining, cut: true)
             }
             throw error
@@ -147,18 +175,28 @@ final class FileActions {
         }
     }
 
-    /// Undoing a copy trashes the copies; redoing it copies the same sources to the same names.
-    private func registerCopyUndo(_ copies: [FileTransfer]) {
+    /// Undoing a copy trashes the copies that are still the files it created.
+    private func registerCopyUndo(_ record: CopyRecord) {
         registerUndo("Copy") { actions in
-            actions.registerRecopyUndo(copies)
-            actions.enqueue { await Self.performTrash(copies.map(\.to)) }
+            actions.registerRecopyUndo(record)
+            actions.enqueue {
+                // Read the record when the work runs: a queued redo may have just updated it.
+                let result = await Self.performTrashCopies(record.transfers, fileNumbers: record.fileNumbers)
+                record.fileNumbers = [:]
+                return result
+            }
         }
     }
 
-    private func registerRecopyUndo(_ copies: [FileTransfer]) {
+    /// Redoing a copy copies the same sources to the same names, skipping names now taken.
+    private func registerRecopyUndo(_ record: CopyRecord) {
         registerUndo("Copy") { actions in
-            actions.registerCopyUndo(copies)
-            actions.enqueue { await Self.performCopies(copies) }
+            actions.registerCopyUndo(record)
+            actions.enqueue {
+                let result = await Self.performCopies(record.transfers)
+                record.fileNumbers = result.fileNumbers
+                return result
+            }
         }
     }
 
@@ -174,7 +212,19 @@ final class FileActions {
         if needsGroup { undoManager.endUndoGrouping() }
     }
 
-    private func enqueue(_ work: @escaping @Sendable () async -> BatchResult) {
+    /// Runs `operation` after everything already queued, and returns its result.
+    private func serialized<T>(_ operation: @escaping () async throws -> T) async throws -> T {
+        let previous = lastWork
+        let task = Task<T, any Error> {
+            await previous?.value
+            return try await operation()
+        }
+        lastWork = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
+    /// Queues undo/redo work, which has no caller, and reports its failure.
+    private func enqueue(_ work: @escaping () async -> BatchResult) {
         let previous = lastWork
         lastWork = Task {
             await previous?.value
@@ -193,16 +243,45 @@ final class FileActions {
         let fileManager = FileManager.default
         var result = BatchResult()
         for transfer in plan {
+            // Never write over, or clean up, something that is already there.
+            if fileManager.fileExists(atPath: transfer.to.path) {
+                result.error = CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: transfer.to.path])
+                continue
+            }
             do {
                 try fileManager.copyItem(at: transfer.from, to: transfer.to)
                 result.done.append(transfer)
+                if let number = fileNumber(of: transfer.to) { result.fileNumbers[transfer.to.path] = number }
             } catch {
-                // Don't leave a half-copied item behind.
+                // The destination didn't exist before, so anything there now is our partial copy.
                 if fileManager.fileExists(atPath: transfer.to.path) {
                     try? fileManager.trashItem(at: transfer.to, resultingItemURL: nil)
                 }
                 result.error = error
                 break
+            }
+        }
+        return result
+    }
+
+    /// Trashes copies, skipping any that were replaced by a different file since they were made.
+    @concurrent private nonisolated static func performTrashCopies(
+        _ copies: [FileTransfer], fileNumbers: [String: Int]
+    ) async -> BatchResult {
+        var result = BatchResult()
+        for copy in copies {
+            guard let expected = fileNumbers[copy.to.path] else { continue }
+            guard fileNumber(of: copy.to) == expected else {
+                if FileManager.default.fileExists(atPath: copy.to.path) {
+                    result.error = CopyChangedError(name: copy.to.lastPathComponent)
+                }
+                continue
+            }
+            do {
+                try FileManager.default.trashItem(at: copy.to, resultingItemURL: nil)
+                result.done.append(copy)
+            } catch {
+                result.error = error
             }
         }
         return result
@@ -235,6 +314,10 @@ final class FileActions {
             }
         }
         return result
+    }
+
+    private nonisolated static func fileNumber(of url: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)?.intValue
     }
 
     // MARK: - Naming

@@ -240,12 +240,16 @@ final class BrowserModel {
     }
 
     func measureFolders() async {
-        let pending = rawItems
-            .filter {
-                $0.isDirectory && folderStats[$0.url] == nil
-                    && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
-            }
-            .map(\.url)
+        let candidates = rawItems.filter {
+            $0.isDirectory && folderStats[$0.url] == nil
+                && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
+        }
+        let pending = candidates.map(\.url)
+        // A result only counts if the folder hasn't changed while it was being measured.
+        let datesAtStart = Dictionary(candidates.map { ($0.url, $0.modificationDate) }, uniquingKeysWith: { a, _ in a })
+        func isCurrent(_ url: URL) -> Bool {
+            rawItems.first { $0.url == url }.map { $0.modificationDate == datesAtStart[url] ?? nil } ?? false
+        }
         measuring.formUnion(pending)
         defer { measuring.subtract(pending) }
         var queue = pending.makeIterator()
@@ -256,7 +260,9 @@ final class BrowserModel {
             }
             for await (url, stats) in group {
                 if Task.isCancelled { group.cancelAll(); break }
-                if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
+                if isCurrent(url) {
+                    if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
+                }
                 if let next = queue.next() {
                     group.addTask { (next, await Self.measure(next)) }
                 }
@@ -319,7 +325,7 @@ final class BrowserModel {
         guard renamingURL == item.url else { return }
         renamingURL = nil
         do {
-            let renamed = try actions.rename(item.url, to: newName)
+            let renamed = try await actions.rename(item.url, to: newName)
             selection = [renamed.canonical]
         } catch {
             alertMessage = error.localizedDescription

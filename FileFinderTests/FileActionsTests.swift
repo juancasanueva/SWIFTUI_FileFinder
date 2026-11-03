@@ -37,7 +37,7 @@ struct FileActionsTests {
     func renameAndUndo() async throws {
         let original = try dir.file("draft.txt", bytes: 3)
 
-        let renamed = try actions.rename(original, to: "final.txt")
+        let renamed = try await actions.rename(original, to: "final.txt")
 
         #expect(renamed.lastPathComponent == "final.txt")
         #expect(exists(renamed) && !exists(original))
@@ -50,18 +50,18 @@ struct FileActionsTests {
     }
 
     @Test("Rename rejects empty names and names containing a slash", arguments: ["", "   ", "a/b"])
-    func renameRejectsInvalidNames(name: String) throws {
+    func renameRejectsInvalidNames(name: String) async throws {
         let original = try dir.file("draft.txt")
-        #expect(throws: FileActionError.invalidName) { try actions.rename(original, to: name) }
+        await #expect(throws: FileActionError.invalidName) { try await actions.rename(original, to: name) }
         #expect(exists(original))
         #expect(!undoManager.canUndo)
     }
 
     @Test("Rename refuses to overwrite an existing item")
-    func renameRefusesOverwrite() throws {
+    func renameRefusesOverwrite() async throws {
         let original = try dir.file("a.txt", bytes: 1)
         let other = try dir.file("b.txt", bytes: 2)
-        #expect(throws: FileActionError.nameTaken("b.txt")) { try actions.rename(original, to: "b.txt") }
+        await #expect(throws: FileActionError.nameTaken("b.txt")) { try await actions.rename(original, to: "b.txt") }
         #expect(exists(original))
         #expect(try Data(contentsOf: other).count == 2)
     }
@@ -71,7 +71,7 @@ struct FileActionsTests {
         var reported: [String] = []
         actions.onBackgroundError = { reported.append($0) }
         let original = try dir.file("draft.txt")
-        let renamed = try actions.rename(original, to: "final.txt")
+        let renamed = try await actions.rename(original, to: "final.txt")
         try dir.file("draft.txt")  // the old name is taken again
 
         await undo()
@@ -204,6 +204,54 @@ struct FileActionsTests {
 
         #expect(reported.count == 1)
         #expect(try Data(contentsOf: file).count == 1)
+    }
+
+    // MARK: - Ordering
+
+    @Test("Undoing a move and a rename back to back restores the original name and place")
+    func quickDoubleUndo() async throws {
+        let original = try dir.file("src/a.txt", bytes: 2)
+        let target = try dir.folder("dst")
+        let renamed = try await actions.rename(original, to: "b.txt")
+        _ = try await actions.move([renamed], into: target)
+
+        undoManager.undo()
+        undoManager.undo()
+        await actions.waitForPendingWork()
+
+        #expect(exists(original))
+        #expect(!exists(target.appendingPathComponent("b.txt")))
+    }
+
+    @Test("Two copies started at once both succeed with distinct names")
+    func concurrentCopies() async throws {
+        let source = try dir.file("big.bin", bytes: 2_000_000)
+        let target = try dir.folder("dst")
+
+        async let first = actions.copy([source], into: target)
+        async let second = actions.copy([source], into: target)
+        let results = try await [first, second].flatMap { $0 }
+
+        #expect(Set(results.map(\.lastPathComponent)) == ["big.bin", "big 2.bin"])
+        #expect(results.allSatisfy(exists))
+    }
+
+    @Test("Redoing a copy never replaces or trashes a file that took the copy's name")
+    func redoCopyKeepsNewerFile() async throws {
+        var reported: [String] = []
+        actions.onBackgroundError = { reported.append($0) }
+        let source = try dir.file("a.txt", bytes: 1)
+        let target = try dir.folder("dst")
+        let copy = try #require(try await actions.copy([source], into: target).first)
+        await undo()
+        try dir.file("dst/a.txt", bytes: 7)  // e.g. a download lands with the same name
+
+        await redo()
+        #expect(reported.count == 1)
+        #expect(try Data(contentsOf: copy).count == 7)
+
+        await undo()
+        #expect(try Data(contentsOf: copy).count == 7)
     }
 
     // MARK: - Clipboard
