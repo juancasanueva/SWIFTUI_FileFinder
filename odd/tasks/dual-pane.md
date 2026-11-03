@@ -35,3 +35,10 @@ Route evidence: all units touch FileActions/BrowserModel or depend on them; no W
 - L6 T3: BrowserWindowModel (one or two panes sharing one FileActions; toggleSplit/switchPane/swapPanes/activate; F5/F6 copyToOtherPane/moveToOtherPane with the conflict prompt; WindowState JSON restored via @SceneStorage with fallback for missing folders), PaneView, split HSplitView UI with active marker, menu commands ⌘D, Tab (disabled while typing), ⌘U, F5, F6; focus follows Tab via focusRequest. 10 window-model tests.
 - L7 T1 final recheck at ef71438: A1 fixed (queued paste no longer prompts after close), trash-location guard and incoming-name case verified with undo/rollback probes.
 - L8 T4 60afd8e: BrowserModel.beginDrag (carries the selection when the grabbed item is in it; pasteboard holds the grabbed item's file URL, so Finder accepts it), drop(_:into:copying:) moves or copies with the conflict prompt, ignores a folder dropped onto itself; Table rows (itemProvider + row dropDestination), cards (onDrag + dropDestination), pane background drops. Multi-item drags to other apps carry only the grabbed item (known limit).
+- L9 Four-lens native review approved + acknowledged, non-blocking findings (follow-ups):
+  1. performCopies trashes a replaced item before the "destination exists" guard, whose `continue` neither restores it nor records it for undo (raced destination) — the item stays in the Trash but undo can't bring it back.
+  2. The app-wide drag session is only cleared by a drop in this app; a cancelled drag or a drop into Finder leaves it, so a later external drop of the same file can expand into the stale selection.
+  3. Close Split View drops the inactive pane without releasing its pending conflict prompt (blocks the shared queue).
+  4. Copies pre-measure their sources before the progress bar (and Cancel) appear; a huge folder means a long, uncancellable first pass.
+  5. Readability: duplicate reload in transferToOtherPane, repeated skip-all literal, two path normalizations in resolvedPlan, drop handler duplicated four times.
+  6. Tests missing for F5/F6 into a clash, F5/F6 failure alerts and cancellation.
