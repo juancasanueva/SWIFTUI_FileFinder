@@ -32,7 +32,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
 - [x] T5 S14 — fix review findings — inline — 814fc91, ca57e40; 58/58 tests (3 runs); verifier PASS after one correction; native review review-21beb81078489c20 approved + acknowledged
 - [x] T6 S15 — fix the 5 smaller issues — inline — cdbe8e5, 1927fe1, 67df663; 67/67 tests (3 runs); verifier PASS after two corrections; native review approved + acknowledged
-- [ ] T7 S16 — fix the three L19 follow-ups — inline
+- [x] T7 S16 — fix the three L19 follow-ups — inline — aeec23a; 71/71 tests (3 runs, suite ~2 s)
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -58,3 +58,4 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L18 Recheck of 1927fe1: B1 partially fixed (pacing stamped at walk start, so walks longer than the interval ran back to back). Second correction 67df663: lastDeepRefresh stamped when any walk finishes; interval injectable. RED→GREEN slowWalksArePaced; 67/67, 3 runs. Final recheck: B1 fixed.
 - L19 Third native review approved with non-blocking findings (follow-ups): a huge busy tree (~/Library seen from home with hidden files shown) is still re-walked every walk-duration + 10 s; a folder that once failed to measure is never refreshed by deep changes; the busy-folder and pacing tests depend on wall-clock timing and could be flaky on slow machines.
 - L20 (2026-11-03) User: "fix the follow-ups first"
+- L21 T7 aeec23a: DeepRefreshPacer (pause = max(10 s, 2 x last walk), counted from walk end) with injectable clock; deep refreshes retry previously unmeasurable folders; wall-clock tests replaced by fake-clock tests calling noteDeepChanges/refreshDeeplyChangedFolders directly. RED observed at compile time only (new API). Risk: none. RDD assess: medium, under_budget, no review due.
