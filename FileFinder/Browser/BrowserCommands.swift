@@ -10,6 +10,9 @@ struct BrowserCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Folder") { Task { await browser?.newFolder() } }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(browser == nil || isTyping)
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut("o")
                 .disabled(!hasSelection || isTyping)

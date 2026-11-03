@@ -447,6 +447,20 @@ final class BrowserModel {
         }
     }
 
+    /// Creates an untitled folder here, selects it and starts renaming it.
+    func newFolder() async {
+        let folder = currentFolder
+        do {
+            let created = try await actions.createFolder(in: folder).canonical
+            await reload()
+            guard folder == currentFolder else { return }
+            selection = [created]
+            renamingURL = created
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+    }
+
     func trashSelection() async {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }

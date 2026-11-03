@@ -58,6 +58,7 @@ struct FileContextMenu: View {
 
     var body: some View {
         if urls.isEmpty {
+            Button("New Folder") { Task { await model.newFolder() } }
             Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
         } else {
             Button("Open") { model.open(urls) }

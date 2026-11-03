@@ -206,6 +206,43 @@ struct FileActionsTests {
         #expect(try Data(contentsOf: file).count == 1)
     }
 
+    // MARK: - New folder
+
+    @Test("New Folder uses Finder's untitled naming")
+    func newFolderNaming() async throws {
+        let first = try await actions.createFolder(in: dir.url)
+        let second = try await actions.createFolder(in: dir.url)
+
+        #expect(first.lastPathComponent == "untitled folder")
+        #expect(second.lastPathComponent == "untitled folder 2")
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: first.path, isDirectory: &isDirectory) && isDirectory.boolValue)
+    }
+
+    @Test("Undoing New Folder removes the empty folder, and redo creates it again")
+    func undoRedoNewFolder() async throws {
+        let folder = try await actions.createFolder(in: dir.url)
+
+        await undo()
+        #expect(!exists(folder))
+
+        await redo()
+        #expect(exists(folder))
+    }
+
+    @Test("Undoing New Folder leaves the folder in place once something was put in it")
+    func undoNewFolderKeepsContents() async throws {
+        var reported: [String] = []
+        actions.onBackgroundError = { reported.append($0) }
+        let folder = try await actions.createFolder(in: dir.url)
+        try dir.file("untitled folder/keep.txt", bytes: 3)
+
+        await undo()
+
+        #expect(exists(folder.appendingPathComponent("keep.txt")))
+        #expect(reported.count == 1)
+    }
+
     // MARK: - Ordering
 
     @Test("Undoing a move and a rename back to back restores the original name and place")

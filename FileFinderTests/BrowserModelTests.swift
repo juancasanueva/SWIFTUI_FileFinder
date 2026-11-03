@@ -310,6 +310,19 @@ struct BrowserModelTests {
         #expect(model.items.map(\.name) == ["x.txt"])
     }
 
+    @Test("New Folder selects the new folder and starts renaming it")
+    func newFolderStartsRename() async throws {
+        let model = makeModel()
+        await model.reload()
+
+        await model.newFolder()
+
+        let url = dir.url.appending(path: "untitled folder").canonical
+        #expect(model.items.map(\.url) == [url])
+        #expect(model.selection == [url])
+        #expect(model.renamingURL == url)
+    }
+
     @Test("Trashing the selection removes it from the listing")
     func trashSelection() async throws {
         let file = try dir.file("old.log")

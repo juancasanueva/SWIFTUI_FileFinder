@@ -48,6 +48,13 @@ private final class RelocationRecord {
     init(transfers: [FileTransfer]) { self.transfers = transfers }
 }
 
+nonisolated struct FolderNotEmptyError: LocalizedError {
+    let name: String
+    var errorDescription: String? {
+        "“\(name)” isn't empty anymore, so it was left where it is."
+    }
+}
+
 nonisolated struct CopyChangedError: LocalizedError {
     let name: String
     var errorDescription: String? {
@@ -126,6 +133,20 @@ final class FileActions {
             if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
             if let error = result.error { throw error }
             return result.done.map(\.to)
+        }
+    }
+
+    // MARK: - New folder
+
+    /// Creates "untitled folder" ("untitled folder 2", …) in `folder`, like Finder's ⇧⌘N.
+    @discardableResult
+    func createFolder(in folder: URL) async throws -> URL {
+        try await serialized {
+            let url = Self.uniqueDestination(
+                for: folder.appendingPathComponent("untitled folder"), in: folder, copyStyle: false)
+            try await Self.performCreateFolder(url)
+            self.registerNewFolderUndo(url)
+            return url
         }
     }
 
@@ -214,6 +235,28 @@ final class FileActions {
                 let result = await Self.performCopies(record.transfers)
                 record.fileNumbers = result.fileNumbers
                 return result
+            }
+        }
+    }
+
+    /// Undoing New Folder trashes the folder, but only while it is still empty.
+    private func registerNewFolderUndo(_ url: URL) {
+        registerUndo("New Folder") { actions in
+            actions.registerRecreateFolderUndo(url)
+            actions.enqueue { await Self.performTrashIfEmpty(url) }
+        }
+    }
+
+    private func registerRecreateFolderUndo(_ url: URL) {
+        registerUndo("New Folder") { actions in
+            actions.registerNewFolderUndo(url)
+            actions.enqueue {
+                do {
+                    try await Self.performCreateFolder(url)
+                    return BatchResult()
+                } catch {
+                    return BatchResult(error: error)
+                }
             }
         }
     }
@@ -335,6 +378,24 @@ final class FileActions {
             }
         }
         return result
+    }
+
+    @concurrent private nonisolated static func performCreateFolder(_ url: URL) async throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+    }
+
+    @concurrent private nonisolated static func performTrashIfEmpty(_ url: URL) async -> BatchResult {
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        // Finder drops a .DS_Store into folders it shows; that alone doesn't count as content.
+        guard contents.allSatisfy({ $0 == ".DS_Store" }) else {
+            return BatchResult(error: FolderNotEmptyError(name: url.lastPathComponent))
+        }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            return BatchResult()
+        } catch {
+            return BatchResult(error: error)
+        }
     }
 
     private nonisolated static func fileNumber(of url: URL) -> Int? {
