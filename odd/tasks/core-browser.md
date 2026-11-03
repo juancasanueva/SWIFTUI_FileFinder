@@ -23,10 +23,10 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 
 ## Tasks
 
-- [ ] T1 S3,S5,S9 — domain model + directory listing service + folder size calculator, with tests — inline
-- [ ] T2 S10,S11 — file operations (rename, trash, copy, move, paste from pasteboard) with undo, with tests — inline
-- [ ] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline
-- [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window: sidebar, path bar, list/grid, status bar, shortcuts, Quick Look, rename, thumbnails; disable sandbox — inline
+- [x] T1 S3,S5,S9 — domain model + directory listing service + folder size calculator, with tests — inline — 5fc1ccb (RED: missing symbols; GREEN 8/8)
+- [x] T2 S10,S11 — file operations (rename, trash, copy, move, paste from pasteboard) with undo, with tests — inline — 4377a74 (GREEN 21/21; RED not run separately)
+- [x] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline — f71101a (GREEN 33/33)
+- [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window: sidebar, path bar, list/grid, status bar, shortcuts, Quick Look, rename, thumbnails; disable sandbox — inline — 388875d (sandbox), 44ed215 (UI); 34/34 tests; app launches; UI interactions not driven (no AX/screen permission); pending verifier + native review
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -36,3 +36,5 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L2 (2026-11-03) User: "A, start with the core browser"
 - L3 Decision: clone functionality/UX only, not the FileOS name, logo, or marketing assets.
 - L4 Baseline: scaffold committed at 5658fcd; baseline build succeeds (Xcode 27.2, macOS 27.2 target).
+- L5 Added paste-and-move (⌥⌘V, Finder parity) with RED->GREEN test. URLs normalized via `URL.canonical` so folder URLs from listings, sidebar and pasted results compare equal.
+- L6 Risk: item 2 (app sandbox disabled). RDD assess escalated to high; review due. Independent verifier launched first.
