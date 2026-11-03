@@ -15,6 +15,11 @@ struct PreviewPane: View {
                 case .multiple(let count, let totalBytes):
                     header(icon: Image(systemName: "doc.on.doc"), title: "\(count) items")
                     DetailRow(label: "Size", value: StatusText.formatBytes(totalBytes))
+                case .workspace(let name, let itemCount):
+                    header(icon: Image(systemName: "square.stack.3d.up"), title: name)
+                    DetailRow(label: "Items", value: itemCount == 1 ? "1 item" : "\(itemCount) items")
+                    Text("A workspace gathers items from anywhere. Nothing is copied or moved.")
+                        .font(.caption).foregroundStyle(.secondary)
                 case .currentFolder(let url, let itemCount):
                     header(icon: Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)), title: model.title)
                     DetailRow(label: "Items", value: itemCount == 1 ? "1 item" : "\(itemCount) items")

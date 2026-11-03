@@ -28,22 +28,25 @@ final class BrowserWindowModel {
     private(set) var panes: [BrowserModel]
     private(set) var activeIndex = 0
     @ObservationIgnored private let defaults: UserDefaults
+    let workspaces: WorkspaceStore
 
     init(
         restoring state: WindowState? = nil,
         defaultStart: URL = BrowserModel.defaultStartFolder(),
         actions: FileActions = FileActions(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        workspaces: WorkspaceStore = .shared
     ) {
         self.actions = actions
         self.defaults = defaults
+        self.workspaces = workspaces
         let folders = (state?.folders ?? []).prefix(2).map { path -> URL in
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
             return exists && isDirectory.boolValue ? URL(filePath: path) : defaultStart
         }
         let starts = folders.isEmpty ? [defaultStart] : folders
-        panes = starts.map { BrowserModel(start: $0, actions: actions, defaults: defaults) }
+        panes = starts.map { BrowserModel(start: $0, actions: actions, defaults: defaults, workspaces: workspaces) }
         activeIndex = min(max(state?.activeIndex ?? 0, 0), panes.count - 1)
         // Errors from undo/redo work show in whichever pane is active.
         actions.onBackgroundError = { [weak self] message in self?.active.alertMessage = message }
@@ -67,7 +70,8 @@ final class BrowserWindowModel {
             panes = [active]
             activeIndex = 0
         } else {
-            panes.append(BrowserModel(start: active.currentFolder, actions: actions, defaults: defaults))
+            panes.append(BrowserModel(
+                start: active.currentFolder, actions: actions, defaults: defaults, workspaces: workspaces))
         }
     }
 
@@ -106,6 +110,11 @@ final class BrowserWindowModel {
         let source = active
         let urls = source.selectedURLs
         guard !urls.isEmpty else { return }
+        // Into a workspace, F5 and F6 both just add the items: nothing is copied or moved.
+        if let workspaceID = target.workspaceID {
+            await target.addToWorkspace(urls, workspaceID)
+            return
+        }
         let folder = target.currentFolder
         do {
             let results = copying
