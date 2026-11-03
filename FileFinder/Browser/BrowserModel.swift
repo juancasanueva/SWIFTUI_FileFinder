@@ -570,6 +570,8 @@ final class BrowserModel {
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
+        } catch is CancellationError {
+            // The user pressed Cancel; nothing to report.
         } catch {
             alertMessage = error.localizedDescription
         }

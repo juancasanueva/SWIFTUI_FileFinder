@@ -41,6 +41,23 @@ nonisolated struct NameConflict: Identifiable, Sendable, Equatable {
 /// Asks the user about one conflict. `nil` means "keep both" without asking.
 typealias ConflictResolver = (NameConflict) async -> ConflictDecision
 
+/// A copy in progress, for the progress bar.
+@Observable
+final class TransferProgress {
+    let title: String
+    let totalBytes: Int64
+    var completedBytes: Int64 = 0
+
+    init(title: String, totalBytes: Int64) {
+        self.title = title
+        self.totalBytes = totalBytes
+    }
+
+    var fraction: Double {
+        totalBytes > 0 ? min(1, Double(completedBytes) / Double(totalBytes)) : 0
+    }
+}
+
 /// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
 nonisolated struct FileTransfer: Equatable, Sendable {
     let from: URL
@@ -99,9 +116,36 @@ final class FileActions {
     @ObservationIgnored var onBackgroundError: ((String) -> Void)?
     /// Tail of the serial queue of disk work.
     @ObservationIgnored private var lastWork: Task<Void, Never>?
+    /// Cancel handles of queued and running operations, and which one is running.
+    @ObservationIgnored private var cancellers: [UUID: () -> Void] = [:]
+    @ObservationIgnored private var runningOperation: UUID?
 
-    init(clipboard: FileClipboard = .shared) {
+    /// The copy being performed right now, if any.
+    private(set) var currentTransfer: TransferProgress?
+    /// Operations waiting behind the running one.
+    private(set) var queuedOperations = 0
+
+    /// Copies one item, reporting progress and checking for cancellation.
+    typealias Copier = @Sendable (
+        _ source: URL, _ destination: URL,
+        _ progress: @escaping @Sendable (Int64) -> Void, _ shouldCancel: @escaping @Sendable () -> Bool
+    ) throws -> Void
+
+    @ObservationIgnored private let copier: Copier
+
+    init(
+        clipboard: FileClipboard = .shared,
+        copier: @escaping Copier = { try FileCopier.copy(from: $0, to: $1, progress: $2, shouldCancel: $3) }
+    ) {
         self.clipboard = clipboard
+        self.copier = copier
+    }
+
+    /// Stops the running operation. Items it already finished stay (and can be undone);
+    /// a partly copied item is removed. Queued operations still run.
+    func cancelCurrentTransfer() {
+        guard let runningOperation else { return }
+        cancellers[runningOperation]?()
     }
 
     /// Waits until all queued work has finished.
@@ -143,8 +187,19 @@ final class FileActions {
         return try await serialized {
             // Planned inside the queue, so earlier operations' results count as taken names.
             let plan = try await Self.resolvedPlan(urls, into: folder, copying: true, resolver: resolveConflicts)
+            try Task.checkCancellation()
             let replaced = await Self.performTrash(plan.replacing)
-            let result = replaced.error == nil ? await Self.performCopies(plan.transfers) : BatchResult()
+            var result = BatchResult()
+            if replaced.error == nil, !plan.transfers.isEmpty {
+                let sizes = await Self.sizes(of: plan.transfers.map(\.from))
+                let progress = TransferProgress(
+                    title: Self.copyTitle(plan.transfers, into: folder), totalBytes: sizes.reduce(0, +))
+                self.currentTransfer = progress
+                defer { self.currentTransfer = nil }
+                result = await Self.performCopies(plan.transfers, copier: self.copier, sizes: sizes) { bytes in
+                    Task { @MainActor in progress.completedBytes = bytes }
+                }
+            }
             self.registerAsOneStep(if: !replaced.done.isEmpty || !result.done.isEmpty) {
                 if !replaced.done.isEmpty { self.registerRelocationUndo("Replace", replaced.done) }
                 if !result.done.isEmpty {
@@ -287,8 +342,9 @@ final class FileActions {
     private func registerRecopyUndo(_ record: CopyRecord) {
         registerUndo("Copy") { actions in
             actions.registerCopyUndo(record)
+            let copier = actions.copier
             actions.enqueue {
-                let result = await Self.performCopies(record.transfers)
+                let result = await Self.performCopies(record.transfers, copier: copier)
                 record.fileNumbers = result.fileNumbers
                 return result
             }
@@ -332,12 +388,26 @@ final class FileActions {
     /// Runs `operation` after everything already queued, and returns its result.
     private func serialized<T>(_ operation: @escaping () async throws -> T) async throws -> T {
         let previous = lastWork
+        let id = UUID()
         let task = Task<T, any Error> {
             await previous?.value
+            self.runningOperation = id
+            self.updateQueueCount()
+            defer {
+                self.cancellers[id] = nil
+                self.runningOperation = nil
+                self.updateQueueCount()
+            }
             return try await operation()
         }
+        cancellers[id] = { task.cancel() }
+        updateQueueCount()
         lastWork = Task { _ = try? await task.value }
         return try await task.value
+    }
+
+    private func updateQueueCount() {
+        queuedOperations = cancellers.count - (runningOperation == nil ? 0 : 1)
     }
 
     /// Queues undo/redo work, which has no caller, and reports its failure.
@@ -356,29 +426,63 @@ final class FileActions {
 
     // MARK: - Disk work (off the main actor)
 
-    @concurrent private nonisolated static func performCopies(_ plan: [FileTransfer]) async -> BatchResult {
+    /// `sizes` (bytes per item, same order as `plan`) and `report` drive the progress bar.
+    @concurrent private nonisolated static func performCopies(
+        _ plan: [FileTransfer], copier: Copier, sizes: [Int64] = [],
+        report: (@Sendable (Int64) -> Void)? = nil
+    ) async -> BatchResult {
         let fileManager = FileManager.default
         var result = BatchResult()
-        for transfer in plan {
+        var base: Int64 = 0
+        for (index, transfer) in plan.enumerated() {
+            if Task.isCancelled {
+                result.error = CancellationError()
+                break
+            }
             // Never write over, or clean up, something that is already there.
             if fileManager.fileExists(atPath: transfer.to.path) {
                 result.error = CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: transfer.to.path])
                 continue
             }
             do {
-                try fileManager.copyItem(at: transfer.from, to: transfer.to)
+                let offset = base
+                try copier(transfer.from, transfer.to, { report?(offset + $0) }, { Task.isCancelled })
                 result.done.append(transfer)
                 if let number = fileNumber(of: transfer.to) { result.fileNumbers[transfer.to.path] = number }
+                base += index < sizes.count ? sizes[index] : 0
+                report?(base)
             } catch {
-                // The destination didn't exist before, so anything there now is our partial copy.
-                if fileManager.fileExists(atPath: transfer.to.path) {
-                    try? fileManager.trashItem(at: transfer.to, resultingItemURL: nil)
+                // The destination didn't exist before, so anything there now is our partial copy,
+                // unless the copy failed precisely because something appeared there meanwhile.
+                if !isAlreadyExists(error), fileManager.fileExists(atPath: transfer.to.path) {
+                    try? fileManager.removeItem(at: transfer.to)
                 }
-                result.error = error
+                result.error = Task.isCancelled || error is CancellationError ? CancellationError() : error
                 break
             }
         }
         return result
+    }
+
+    private nonisolated static func isAlreadyExists(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        return (nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(EEXIST))
+            || (nsError.domain == NSCocoaErrorDomain && nsError.code == CocoaError.fileWriteFileExists.rawValue)
+    }
+
+    /// Bytes per item: logical size for files, the whole tree for folders.
+    @concurrent private nonisolated static func sizes(of urls: [URL]) async -> [Int64] {
+        urls.map { url in
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            if values?.isDirectory == true { return (try? FolderSizeCalculator.measure(url).totalBytes) ?? 0 }
+            return Int64(values?.fileSize ?? 0)
+        }
+    }
+
+    private static func copyTitle(_ plan: [FileTransfer], into folder: URL) -> String {
+        let target = folder.lastPathComponent
+        if plan.count == 1 { return "Copying “\(plan[0].from.lastPathComponent)” to “\(target)”" }
+        return "Copying \(plan.count) items to “\(target)”"
     }
 
     /// Trashes copies, skipping any that were replaced by a different file since they were made.

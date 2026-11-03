@@ -22,6 +22,7 @@ struct BrowserWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onKeyPress(.space, action: handleSpace)
                     .onKeyPress(.return, action: handleReturn)
+                TransferBar(actions: model.actions)
                 Divider()
                 Text(model.statusText)
                     .font(.caption)
