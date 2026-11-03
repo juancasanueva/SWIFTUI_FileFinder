@@ -18,15 +18,19 @@ struct BrowserModelTests {
 
     private func makeModel(
         start: URL? = nil,
+        deepRefreshInterval: Duration = .seconds(10),
         measurer: (@Sendable (URL) async -> FolderStats?)? = nil
     ) -> BrowserModel {
         let actions = FileActions(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
         if let measurer {
-            return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults, measurer: measurer)
+            return BrowserModel(
+                start: start ?? dir.url, actions: actions, defaults: defaults,
+                deepRefreshInterval: deepRefreshInterval, measurer: measurer)
         }
-        return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults)
+        return BrowserModel(
+            start: start ?? dir.url, actions: actions, defaults: defaults, deepRefreshInterval: deepRefreshInterval)
     }
 
     // MARK: - History
@@ -204,7 +208,7 @@ struct BrowserModelTests {
     func deepChangeRefreshesSize() async throws {
         let folder = try dir.folder("Projects")
         try dir.file("Projects/app/src/main.swift", bytes: 10)
-        let model = makeModel()
+        let model = makeModel(deepRefreshInterval: .seconds(1))
         let running = Task { await model.run() }
         defer { running.cancel() }
         try await waitFor { model.folderStats[folder.canonical]?.totalBytes == 10 }
@@ -236,6 +240,32 @@ struct BrowserModelTests {
 
         #expect(await counter.count(for: busy.canonical) <= 3)
         #expect(model.folderStats[busy.canonical] != nil)   // never left on "Calculating…"
+    }
+
+    @Test("A busy folder whose walk is slower than the refresh interval still gets a pause between walks",
+          .timeLimit(.minutes(1)))
+    func slowWalksArePaced() async throws {
+        let busy = try dir.folder("Containers")
+        try dir.file("Containers/deep/seed", bytes: 1)
+        let log = WalkLog()
+        let model = makeModel(deepRefreshInterval: .seconds(2), measurer: { url in
+            await log.started(url)
+            try? await Task.sleep(for: .milliseconds(2500))   // slower than the interval
+            let stats = try? FolderSizeCalculator.measure(url)
+            await log.finished(url)
+            return stats
+        })
+        let running = Task { await model.run() }
+        defer { running.cancel() }
+
+        for index in 0..<50 {   // ~10 s of constant activity deep inside
+            try dir.file("Containers/deep/f\(index)", bytes: 1)
+            try await Task.sleep(for: .milliseconds(200))
+        }
+
+        let gaps = await log.gapsBetweenWalks(of: busy.canonical)
+        #expect(!gaps.isEmpty)
+        #expect(gaps.allSatisfy { $0 >= .milliseconds(1900) }, "gaps: \(gaps)")
     }
 
     /// Polls `condition` until it holds (file-system events arrive asynchronously).
@@ -360,4 +390,21 @@ private actor MeasureCounter {
     private var counts: [URL: Int] = [:]
     func record(_ url: URL) { counts[url.canonical, default: 0] += 1 }
     func count(for url: URL) -> Int { counts[url, default: 0] }
+}
+
+/// Records when each fake folder walk starts and ends.
+private actor WalkLog {
+    private var walks: [URL: [(start: ContinuousClock.Instant, end: ContinuousClock.Instant?)]] = [:]
+    func started(_ url: URL) { walks[url.canonical, default: []].append((ContinuousClock.now, nil)) }
+    func finished(_ url: URL) {
+        let key = url.canonical
+        guard var list = walks[key], !list.isEmpty else { return }
+        list[list.count - 1].end = ContinuousClock.now
+        walks[key] = list
+    }
+    /// Time from the end of each walk to the start of the next one.
+    func gapsBetweenWalks(of url: URL) -> [Duration] {
+        let list = walks[url, default: []]
+        return zip(list, list.dropFirst()).compactMap { previous, next in previous.end.map { next.start - $0 } }
+    }
 }

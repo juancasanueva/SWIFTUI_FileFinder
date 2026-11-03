@@ -61,8 +61,10 @@ final class BrowserModel {
     @ObservationIgnored private var generations: [URL: Int] = [:]
     /// Names of sub-folders that changed below their direct contents, waiting to be re-measured.
     @ObservationIgnored private var deeplyChanged: Set<String> = []
+    /// When each folder's last walk ended.
     @ObservationIgnored private var lastDeepRefresh: [URL: ContinuousClock.Instant] = [:]
-    static let deepRefreshInterval: Duration = .seconds(10)
+    /// Minimum pause between the end of one deep refresh of a folder and the start of the next.
+    @ObservationIgnored private let deepRefreshInterval: Duration
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -94,12 +96,14 @@ final class BrowserModel {
         start: URL,
         actions: FileActions = FileActions(),
         defaults: UserDefaults = .standard,
+        deepRefreshInterval: Duration = .seconds(10),
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
     ) {
         currentFolder = start.canonical
         self.actions = actions
         self.defaults = defaults
         self.measurer = measurer
+        self.deepRefreshInterval = deepRefreshInterval
         showHidden = defaults.bool(forKey: Key.showHidden)
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
@@ -284,8 +288,8 @@ final class BrowserModel {
         deeplyChanged.formUnion(SubtreeWatcher.changedChildren(paths: paths, in: folder))
     }
 
-    /// Re-measures deeply changed sub-folders, all pending changes at once, each folder at most
-    /// once per `deepRefreshInterval`, keeping its previous size on screen meanwhile. Busy trees
+    /// Re-measures deeply changed sub-folders, all pending changes at once, each folder only
+    /// after a `deepRefreshInterval` pause since its last walk ended, keeping its previous size on screen meanwhile. Busy trees
     /// such as ~/Library change constantly; this keeps them from being re-walked non-stop.
     private func refreshDeeplyChangedFolders(in folder: URL) async {
         guard folder == currentFolder, !deeplyChanged.isEmpty else { return }
@@ -295,9 +299,8 @@ final class BrowserModel {
         for item in rawItems where item.isDirectory && deeplyChanged.contains(item.name) {
             // Still being walked, or walked recently: stay pending for a later round.
             if measuring.contains(item.url) { continue }
-            if let last = lastDeepRefresh[item.url], now - last < Self.deepRefreshInterval { continue }
+            if let last = lastDeepRefresh[item.url], now - last < deepRefreshInterval { continue }
             deeplyChanged.remove(item.name)
-            lastDeepRefresh[item.url] = now
             due.insert(item.url)
         }
         if !due.isEmpty { await measureFolders(refreshing: due) }
@@ -337,6 +340,9 @@ final class BrowserModel {
             for await (url, stats) in group {
                 if Task.isCancelled { group.cancelAll(); break }
                 let stillListed = rawItems.contains { $0.url == url }
+                // The pause before a deep refresh counts from the end of the last walk, so a walk
+                // longer than the interval isn't followed straight away by another one.
+                lastDeepRefresh[url] = ContinuousClock.now
                 if stillListed, generations[url, default: 0] == generationAtStart[url] {
                     if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
                 } else if stillListed {
