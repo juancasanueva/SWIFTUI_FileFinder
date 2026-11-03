@@ -5,6 +5,12 @@ nonisolated struct SidebarItem: Identifiable, Hashable, Sendable {
     let systemImage: String
     let url: URL
     var id: URL { url }
+
+    init(title: String, systemImage: String, url: URL) {
+        self.title = title
+        self.systemImage = systemImage
+        self.url = url.canonical
+    }
 }
 
 /// Builds the sidebar sections: Favorites, Locations and Trash.

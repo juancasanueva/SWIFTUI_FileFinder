@@ -39,6 +39,14 @@ nonisolated struct FinderOrder: SortComparator, Hashable, Sendable {
     }
 }
 
+extension URL {
+    /// File URL without a trailing slash, so the same path always compares equal
+    /// (`contentsOfDirectory` appends "/" to folders, `appendingPathComponent` may not).
+    nonisolated var canonical: URL {
+        URL(filePath: standardizedFileURL.path, directoryHint: .notDirectory)
+    }
+}
+
 private extension ComparisonResult {
     nonisolated var reversed: ComparisonResult {
         switch self {

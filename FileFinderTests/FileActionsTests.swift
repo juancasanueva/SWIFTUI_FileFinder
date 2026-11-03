@@ -173,6 +173,18 @@ struct FileActionsTests {
         #expect(exists(source))
     }
 
+    @Test("Paste-and-move (⌥⌘V) moves files that were only copied")
+    func pasteForcingMove() throws {
+        let source = try dir.file("a/x.txt")
+        let target = try dir.folder("b")
+
+        actions.copyToClipboard([source])
+        let pasted = try actions.paste(into: target, forceMove: true)
+
+        #expect(pasted == [target.appendingPathComponent("x.txt")])
+        #expect(!exists(source))
+    }
+
     @Test("Pasting with an empty clipboard does nothing")
     func pasteEmpty() throws {
         let target = try dir.folder("b")

@@ -20,7 +20,7 @@ nonisolated enum DirectoryLister {
         guard let values = try? url.resourceValues(forKeys: Set(resourceKeys)) else { return nil }
         let isDirectory = values.isDirectory ?? false
         return FileItem(
-            url: url,
+            url: url.canonical,
             name: values.name ?? url.lastPathComponent,
             isDirectory: isDirectory,
             isPackage: values.isPackage ?? false,

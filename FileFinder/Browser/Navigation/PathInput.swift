@@ -44,7 +44,7 @@ nonisolated enum PathInput {
     /// Every folder from the volume root down to `url`, root first.
     static func breadcrumbs(for url: URL) -> [URL] {
         var crumbs: [URL] = []
-        var current = url.standardizedFileURL
+        var current = url.canonical
         while true {
             crumbs.append(current)
             if current.path == "/" || current.pathComponents.count <= 1 { break }

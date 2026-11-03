@@ -40,7 +40,7 @@ final class FileActions {
             throw FileActionError.nameTaken(name)
         }
         try fileManager.moveItem(at: url, to: destination)
-        registerUndo("Rename") { try? $0.rename(destination, to: oldName) }
+        registerUndo("Rename") { _ = try? $0.rename(destination, to: oldName) }
         return destination
     }
 
@@ -98,12 +98,13 @@ final class FileActions {
     func cutToClipboard(_ urls: [URL]) { clipboard.write(urls, cut: true) }
     var canPaste: Bool { clipboard.hasFiles }
 
-    /// Pastes clipboard files into `folder`: moves after a cut, copies otherwise.
+    /// Pastes clipboard files into `folder`: moves after a cut (or when `forceMove`, Finder's ⌥⌘V),
+    /// copies otherwise.
     @discardableResult
-    func paste(into folder: URL) throws -> [URL] {
+    func paste(into folder: URL, forceMove: Bool = false) throws -> [URL] {
         let (urls, isCut) = clipboard.read()
         guard !urls.isEmpty else { return [] }
-        guard isCut else { return try copy(urls, into: folder) }
+        guard isCut || forceMove else { return try copy(urls, into: folder) }
         let moved = try move(urls, into: folder)
         clipboard.write(moved, cut: false)
         return moved
