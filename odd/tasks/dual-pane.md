@@ -21,7 +21,7 @@ Quoted from the reference site (fileosmac.com), Dual Pane section:
 - [x] T1 S6 — conflict resolution in FileActions (keep both / replace / skip, apply to all, undoable replace) + prompt UI — inline — f801f72 (RED→GREEN, 99/99); Risk: item 1 (replace trashes existing items) → verifier; corrections f2d74d7, 1f513af
 - [x] T2 S5 — copy progress via copyfile(3), cancellable transfer queue + progress UI — inline — f5ca4a3 (RED→GREEN, 107/107)
 - [x] T3 S1,S2,S3,S7 — window model with two panes: split, active pane, Tab, ⌘U, F5/F6, state restoration + split UI — inline — ef71438 (RED→GREEN, 124/124)
-- [ ] T4 S4 — drag and drop between panes and onto folders (move, ⌥ copies) — inline
+- [x] T4 S4 — drag and drop between panes and onto folders (move, ⌥ copies) — inline — 60afd8e (RED→GREEN, 131/131)
 
 Route evidence: all units touch FileActions/BrowserModel or depend on them; no Writer trigger.
 
@@ -33,3 +33,5 @@ Route evidence: all units touch FileActions/BrowserModel or depend on them; no W
 - L4 T2 f5ca4a3: FileCopier (copyfile(3) with status callback, clone when possible, cancel via COPYFILE_QUIT), TransferProgress + TransferBar (shown after 0.4 s, Cancel, queued count), cancelCurrentTransfer cancels only the running operation; partial copies removed (not trashed); CancellationError never alerts.
 - L5 T1 recheck at f2d74d7: B1, A3, A4 fixed; A1 still failing (a paste queued behind an open prompt asked after the window closed and blocked the queue). Second correction: BrowserModel.isClosed makes later prompts answer skip-all (committed with T3 since BrowserModel carries both); replaced items keep the incoming name's case; trashItem throws if the Trash gives no location. RED→GREEN (queued paste hung before); 124/124.
 - L6 T3: BrowserWindowModel (one or two panes sharing one FileActions; toggleSplit/switchPane/swapPanes/activate; F5/F6 copyToOtherPane/moveToOtherPane with the conflict prompt; WindowState JSON restored via @SceneStorage with fallback for missing folders), PaneView, split HSplitView UI with active marker, menu commands ⌘D, Tab (disabled while typing), ⌘U, F5, F6; focus follows Tab via focusRequest. 10 window-model tests.
+- L7 T1 final recheck at ef71438: A1 fixed (queued paste no longer prompts after close), trash-location guard and incoming-name case verified with undo/rollback probes.
+- L8 T4 60afd8e: BrowserModel.beginDrag (carries the selection when the grabbed item is in it; pasteboard holds the grabbed item's file URL, so Finder accepts it), drop(_:into:copying:) moves or copies with the conflict prompt, ignores a folder dropped onto itself; Table rows (itemProvider + row dropDestination), cards (onDrag + dropDestination), pane background drops. Multi-item drags to other apps carry only the grabbed item (known limit).
