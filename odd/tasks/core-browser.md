@@ -26,7 +26,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [x] T1 S3,S5,S9 — domain model + directory listing service + folder size calculator, with tests — inline — 5fc1ccb (RED: missing symbols; GREEN 8/8)
 - [x] T2 S10,S11 — file operations (rename, trash, copy, move, paste from pasteboard) with undo, with tests — inline — 4377a74 (GREEN 21/21; RED not run separately)
 - [x] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline — f71101a (GREEN 33/33)
-- [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window: sidebar, path bar, list/grid, status bar, shortcuts, Quick Look, rename, thumbnails; disable sandbox — inline — 388875d (sandbox), 44ed215 (UI); 34/34 tests; app launches; UI interactions not driven (no AX/screen permission); pending verifier + native review
+- [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -38,3 +38,6 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L4 Baseline: scaffold committed at 5658fcd; baseline build succeeds (Xcode 27.2, macOS 27.2 target).
 - L5 Added paste-and-move (⌥⌘V, Finder parity) with RED->GREEN test. URLs normalized via `URL.canonical` so folder URLs from listings, sidebar and pasted results compare equal.
 - L6 Risk: item 2 (app sandbox disabled). RDD assess escalated to high; review due. Independent verifier launched first.
+- L7 Verifier: B1 copy-into-itself recursion, P1 watcher started after measuring, P2 ⌘⌫ active while typing → fixed in 07902fb; recheck: all fixed. New advisory (duplicate measurements) fixed in 77796b7.
+- L8 Native review (risk, resilience, reliability) approved with 12 non-blocking findings; acknowledged, authority burned. Follow-ups: file ops run on the main actor (big copies freeze UI); undo failures are silent; copy undo has no redo; folder stats go stale and failed measurements show "Calculating…" forever; sidebar does disk I/O in body; load error always suggests Full Disk Access; opening several folders navigates to each; BrowserModel has no tests.
+- L9 Next: user runs the app to check the keyboard interactions; then next slice (New Folder, card arrow keys, preview pane) or the follow-ups above.
