@@ -254,6 +254,28 @@ struct FileActionsTests {
         #expect(try Data(contentsOf: copy).count == 7)
     }
 
+    @Test("After an undo that stops partway, redo only re-applies what the undo moved back")
+    func partialUndoThenRedo() async throws {
+        var reported: [String] = []
+        actions.onBackgroundError = { reported.append($0) }
+        let first = try dir.file("src/a.txt", bytes: 1)
+        let second = try dir.file("src/b.txt", bytes: 2)
+        let target = try dir.folder("dst")
+        _ = try await actions.move([first, second], into: target)
+        try dir.file("src/b.txt", bytes: 9)   // blocks b from going back
+
+        await undo()
+        #expect(exists(first))
+        #expect(reported.count == 1)
+
+        await redo()
+        #expect(reported.count == 1)   // redo doesn't try to move b, which never came back
+        #expect(!exists(first))
+        #expect(exists(target.appendingPathComponent("a.txt")))
+        #expect(exists(target.appendingPathComponent("b.txt")))
+        #expect(try Data(contentsOf: second).count == 9)
+    }
+
     // MARK: - Clipboard
 
     @Test("Copy then paste duplicates the files")

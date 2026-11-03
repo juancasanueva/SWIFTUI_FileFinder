@@ -16,10 +16,16 @@ struct BrowserModelTests {
         undoManager.groupsByEvent = false
     }
 
-    private func makeModel(start: URL? = nil) -> BrowserModel {
+    private func makeModel(
+        start: URL? = nil,
+        measurer: (@Sendable (URL) async -> FolderStats?)? = nil
+    ) -> BrowserModel {
         let actions = FileActions(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
+        if let measurer {
+            return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults, measurer: measurer)
+        }
         return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults)
     }
 
@@ -150,6 +156,73 @@ struct BrowserModelTests {
         #expect(model.cardSubtitle(for: item) == "--")
     }
 
+    @Test("A folder that changes while it is being measured is measured again")
+    func remeasuresAfterMidMeasureChange() async throws {
+        let folder = try dir.folder("Photos")
+        try dir.file("Photos/a.jpg", bytes: 100)
+        let gate = MeasureGate()
+        let model = makeModel(measurer: { url in
+            await gate.firstCallWaits()
+            return try? FolderSizeCalculator.measure(url)
+        })
+        await model.reload()
+
+        let measuring = Task { await model.measureFolders() }
+        await gate.waitUntilCalled()
+        try dir.file("Photos/b.jpg", bytes: 50)   // changes while the first measurement is in flight
+        await model.reload()
+        await gate.release()
+        await measuring.value
+
+        #expect(model.folderStats[folder.canonical] == FolderStats(totalBytes: 150, itemCount: 2))
+    }
+
+    @Test("Leaving a deleted folder does not wait for size calculations running in it",
+          .timeLimit(.minutes(1)))
+    func stepsOutOfDeletedFolderPromptly() async throws {
+        let current = try dir.folder("current")
+        try dir.folder("current/huge")
+        let gate = MeasureGate()
+        let model = makeModel(start: current, measurer: { _ in
+            await gate.markCalled()
+            try? await Task.sleep(for: .seconds(30))   // a long walk; ends early only if cancelled
+            return nil
+        })
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        let running = Task { await model.run() }
+        await gate.waitUntilCalled()
+        try FileManager.default.removeItem(at: current)
+        await running.value
+
+        #expect(clock.now - started < .seconds(10))
+        #expect(model.currentFolder == dir.url.canonical)
+    }
+
+    @Test("A change deep inside a sub-folder refreshes that sub-folder's size", .timeLimit(.minutes(1)))
+    func deepChangeRefreshesSize() async throws {
+        let folder = try dir.folder("Projects")
+        try dir.file("Projects/app/src/main.swift", bytes: 10)
+        let model = makeModel()
+        let running = Task { await model.run() }
+        defer { running.cancel() }
+        try await waitFor { model.folderStats[folder.canonical]?.totalBytes == 10 }
+
+        try dir.file("Projects/app/src/extra.swift", bytes: 5)
+
+        try await waitFor { model.folderStats[folder.canonical]?.totalBytes == 15 }
+    }
+
+    /// Polls `condition` until it holds (file-system events arrive asynchronously).
+    private func waitFor(_ condition: () -> Bool) async throws {
+        for _ in 0..<200 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        Issue.record("Condition not met within 10 seconds")
+    }
+
     // MARK: - Opening
 
     @Test("Opening several folders navigates into the first one only")
@@ -221,5 +294,40 @@ struct BrowserModelTests {
         #expect(reloaded.showHidden)
         #expect(reloaded.viewMode == .cards)
         #expect(reloaded.iconSize == .large)
+    }
+}
+
+/// Lets a test hold a fake folder measurement open and observe when it starts.
+private actor MeasureGate {
+    private var called = false
+    private var calledWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var released = false
+    private var firstCallTaken = false
+
+    func markCalled() {
+        called = true
+        calledWaiters.forEach { $0.resume() }
+        calledWaiters = []
+    }
+
+    /// The first caller blocks until `release()`; later callers pass straight through.
+    func firstCallWaits() async {
+        markCalled()
+        guard !firstCallTaken else { return }
+        firstCallTaken = true
+        if released { return }
+        await withCheckedContinuation { releaseWaiter = $0 }
+    }
+
+    func waitUntilCalled() async {
+        if called { return }
+        await withCheckedContinuation { calledWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
     }
 }

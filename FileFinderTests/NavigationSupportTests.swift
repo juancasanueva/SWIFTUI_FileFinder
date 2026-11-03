@@ -126,3 +126,39 @@ struct DirectoryWatcherTests {
         }
     }
 }
+
+@Suite("Subtree watcher")
+struct SubtreeWatcherTests {
+    @Test("Maps deep change paths to the direct child folder that contains them")
+    func changedChildren() {
+        let root = URL(filePath: "/Users/me/Projects")
+        let names = SubtreeWatcher.changedChildren(
+            paths: [
+                "/Users/me/Projects/app/src/main.swift",   // deep inside "app"
+                "/Users/me/Projects/web/index.html",       // deep inside "web"
+                "/Users/me/Projects/notes.txt",            // direct child: handled by the folder watcher
+                "/Users/me/Projects",                      // the folder itself
+                "/Users/me/Elsewhere/x",                   // outside
+            ],
+            in: root)
+        #expect(names == ["app", "web"])
+    }
+
+    @Test("Reports a change made deep inside the watched folder", .timeLimit(.minutes(1)))
+    func emitsDeepChange() async throws {
+        let dir = try TemporaryDirectory()
+        try dir.folder("app/src")
+        let changes = SubtreeWatcher.changes(of: dir.url, latency: 0.1)
+
+        try await confirmation("deep change") { changed in
+            let waiter = Task {
+                for await paths in changes where !SubtreeWatcher.changedChildren(paths: paths, in: dir.url).isEmpty {
+                    changed()
+                    break
+                }
+            }
+            try dir.file("app/src/new.swift")
+            await waiter.value
+        }
+    }
+}

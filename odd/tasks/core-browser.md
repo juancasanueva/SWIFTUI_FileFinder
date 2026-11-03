@@ -20,6 +20,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - S11 "Undo for moves, copies, renames, and Trash moves (⌘Z)."
 - S12 "Cards show real previews: the first page of a document, a photo, a video frame, or a slide."
 - S14 User: "fix the review findings first" — the review findings recorded in L8 (all code findings; R1 sandbox is an accepted decision, no change).
+- S15 User: "fix the 5 smaller issues first" — the five follow-ups listed in L14/L13: (1) folder stuck on "Calculating…" when it changes mid-measure, (2) undo/redo of a multi-file move registers the full inverse even when the undo stops partway, (3) overlapping sidebar refreshes can apply an older snapshot, (4) leaving a deleted folder waits for in-flight size calculations, (5) a change deep inside a subfolder doesn't update its size.
 - S13 App runs unsandboxed so it can browse the whole disk like Finder (assumption: required for a Finder replacement; Full Disk Access stays optional).
 
 ## Tasks
@@ -29,6 +30,7 @@ Quoted fragments come from the reference site's feature list (fileosmac.com).
 - [x] T3 S1,S2,S4,S8 — sidebar locations, path parsing/completion, volume free space, directory watcher, with tests — inline — f71101a (GREEN 33/33)
 - [ ] T4 S3,S6,S7,S12,S13 — SwiftUI window, sidebar, path bar, list/cards, status bar, shortcuts, Quick Look, rename, thumbnails; sandbox off — inline — 388875d, 44ed215, 07902fb, 77796b7; 37/37 tests; verifier PASS after one correction; native review approved+acknowledged (review-ae1077e770259109). Open: manual UI check of Return-rename in list, Space/Return in cards, ⌘+, Tab completion (not drivable here)
 - [x] T5 S14 — fix review findings — inline — 814fc91, ca57e40; 58/58 tests (3 runs); verifier PASS after one correction; native review review-21beb81078489c20 approved + acknowledged
+- [ ] T6 S15 — fix the 5 smaller issues — inline
 
 Route evidence: one coherent app, units depend on each other (UI depends on T1-T3), so no Writer trigger; parent writes inline.
 
@@ -48,3 +50,4 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 - L12 Correction ca57e40: all operations serialized on one queue (rename async), copies never touch existing destinations, copy undo/redo share a CopyRecord with inode checks, clipboard rewrite guarded by changeCount, stale measurements dropped. 58/58 tests, 3 repeated runs. Deep (non-direct) subfolder changes still don't refresh sizes — accepted limit, documented. Recheck pending.
 - L13 Recheck: B1-B4 fixed. New narrower race from the A1 change: a folder whose measurement is discarded stays in `measuring`, so the follow-up pass skips it and it can stay "Calculating…" until its next change. Fix: re-measure discarded folders before `measureFolders` returns. Logged as follow-up (correction bound reached).
 - L14 Second native review approved with non-blocking findings (follow-ups): folder can stay "Calculating…" if changed mid-measure (same as L13); relocation undo/redo registers the full inverse even when the undo stops partway; overlapping sidebar refreshes can apply an older snapshot; run() now waits for in-flight measurements before stepping out of a deleted folder.
+- L15 (2026-11-03) User: "fix the 5 smaller issues first"

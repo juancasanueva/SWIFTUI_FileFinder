@@ -57,6 +57,10 @@ final class BrowserModel {
     private var rawItems: [FileItem] = []
     /// Folders with a measurement in flight, so overlapping refreshes don't walk them twice.
     @ObservationIgnored private var measuring: Set<URL> = []
+    /// Bumped whenever a folder's size is invalidated, to recognize stale measurements.
+    @ObservationIgnored private var generations: [URL: Int] = [:]
+    /// Folders that changed deep inside while being measured; measured again afterwards.
+    @ObservationIgnored private var changedWhileMeasuring: Set<URL> = []
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -81,11 +85,19 @@ final class BrowserModel {
     var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
 
     let actions: FileActions
+    /// Measures one folder; injectable so tests can control timing.
+    @ObservationIgnored private let measurer: @Sendable (URL) async -> FolderStats?
 
-    init(start: URL, actions: FileActions = FileActions(), defaults: UserDefaults = .standard) {
+    init(
+        start: URL,
+        actions: FileActions = FileActions(),
+        defaults: UserDefaults = .standard,
+        measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
+    ) {
         currentFolder = start.canonical
         self.actions = actions
         self.defaults = defaults
+        self.measurer = measurer
         showHidden = defaults.bool(forKey: Key.showHidden)
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
@@ -167,6 +179,8 @@ final class BrowserModel {
         folderStats = [:]
         unmeasurableFolders = []
         measuring = []
+        generations = [:]
+        changedWhileMeasuring = []
         items = []
         rawItems = []
         loadFailure = nil
@@ -192,16 +206,26 @@ final class BrowserModel {
         let folder = currentFolder
         // Start watching before the first listing so changes made meanwhile are not missed.
         let changes = DirectoryWatcher.changes(of: folder)
+        let deepChanges = SubtreeWatcher.changes(of: folder)
         await reload()
         await withTaskGroup(of: Void.self) { group in
             // Measuring can take minutes in big trees; it must not block refreshes.
             group.addTask { await self.measureFolders() }
+            group.addTask {
+                for await paths in deepChanges {
+                    await self.handleDeepChanges(paths, in: folder)
+                    // Busy trees (like ~/Library) change constantly; re-measure at most every few seconds.
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
             for await _ in changes {
                 await reload()
                 group.addTask { await self.measureFolders() }
             }
-            // Leaving the group waits for measurements, so they finish even if watching
-            // isn't possible; cancelling `run()` still cancels them.
+            // Watching ended. If the folder is gone, its measurements are moot: stop them now
+            // instead of waiting for long walks. Otherwise (watching just isn't possible here)
+            // keep measuring until `run()` is cancelled.
+            if !FileManager.default.fileExists(atPath: folder.path) { group.cancelAll() }
         }
         // The stream ends when the folder is deleted or renamed: step out of it.
         if !Task.isCancelled, folder == currentFolder, !FileManager.default.fileExists(atPath: folder.path) {
@@ -234,40 +258,78 @@ final class BrowserModel {
     private func invalidateChangedFolders(previous: [FileItem], current: [FileItem]) {
         let currentDates = Dictionary(current.map { ($0.url, $0.modificationDate) }, uniquingKeysWith: { a, _ in a })
         for old in previous where old.isDirectory && currentDates[old.url] != .some(old.modificationDate) {
-            folderStats[old.url] = nil
-            unmeasurableFolders.remove(old.url)
+            invalidate(old.url)
         }
     }
 
+    /// Forgets a folder's size. A measurement already running for it will be discarded.
+    private func invalidate(_ url: URL) {
+        folderStats[url] = nil
+        unmeasurableFolders.remove(url)
+        generations[url, default: 0] += 1
+    }
+
+    /// Re-measures sub-folders that changed somewhere below their direct contents.
+    private func handleDeepChanges(_ paths: [String], in folder: URL) async {
+        let names = SubtreeWatcher.changedChildren(paths: paths, in: folder)
+        guard folder == currentFolder, !names.isEmpty else { return }
+        for item in rawItems where item.isDirectory && names.contains(item.name) {
+            if measuring.contains(item.url) {
+                // Let the running walk finish and show its value, then measure once more.
+                changedWhileMeasuring.insert(item.url)
+            } else {
+                invalidate(item.url)
+            }
+        }
+        await measureFolders()
+    }
+
+    /// Measures every sub-folder without a size. Folders invalidated while being measured are
+    /// measured again (a few rounds at most), so none is left on "Calculating…".
     func measureFolders() async {
-        let candidates = rawItems.filter {
-            $0.isDirectory && folderStats[$0.url] == nil
-                && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
+        var refreshing: Set<URL> = []
+        for _ in 0..<3 {
+            let remeasure = await measurePass(refreshing: refreshing)
+            guard !remeasure.isEmpty, !Task.isCancelled else { return }
+            refreshing = Set(remeasure)
         }
-        let pending = candidates.map(\.url)
-        // A result only counts if the folder hasn't changed while it was being measured.
-        let datesAtStart = Dictionary(candidates.map { ($0.url, $0.modificationDate) }, uniquingKeysWith: { a, _ in a })
-        func isCurrent(_ url: URL) -> Bool {
-            rawItems.first { $0.url == url }.map { $0.modificationDate == datesAtStart[url] ?? nil } ?? false
-        }
+    }
+
+    /// One round of measuring: folders without a size, plus `refreshing` ones, which keep
+    /// showing their previous size meanwhile. Returns folders that need another round.
+    private func measurePass(refreshing: Set<URL>) async -> [URL] {
+        let pending = rawItems
+            .filter {
+                $0.isDirectory && (folderStats[$0.url] == nil || refreshing.contains($0.url))
+                    && !unmeasurableFolders.contains($0.url) && !measuring.contains($0.url)
+            }
+            .map(\.url)
+        let generationAtStart = Dictionary(pending.map { ($0, generations[$0, default: 0]) }, uniquingKeysWith: { a, _ in a })
         measuring.formUnion(pending)
         defer { measuring.subtract(pending) }
+
+        var remeasure: [URL] = []
         var queue = pending.makeIterator()
         await withTaskGroup(of: (URL, FolderStats?).self) { group in
             for _ in 0..<4 {
                 guard let url = queue.next() else { break }
-                group.addTask { (url, await Self.measure(url)) }
+                group.addTask { [measurer] in (url, await measurer(url)) }
             }
             for await (url, stats) in group {
                 if Task.isCancelled { group.cancelAll(); break }
-                if isCurrent(url) {
+                let stillListed = rawItems.contains { $0.url == url }
+                if stillListed, generations[url, default: 0] == generationAtStart[url] {
                     if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
+                    if changedWhileMeasuring.remove(url) != nil { remeasure.append(url) }
+                } else if stillListed {
+                    remeasure.append(url)  // invalidated mid-walk: the result is stale
                 }
                 if let next = queue.next() {
-                    group.addTask { (next, await Self.measure(next)) }
+                    group.addTask { [measurer] in (next, await measurer(next)) }
                 }
             }
         }
+        return remeasure
     }
 
     private func applySort() {
@@ -282,7 +344,7 @@ final class BrowserModel {
         try DirectoryLister.contents(of: folder, showHidden: showHidden)
     }
 
-    @concurrent private nonisolated static func measure(_ folder: URL) async -> FolderStats? {
+    @concurrent nonisolated static func measure(_ folder: URL) async -> FolderStats? {
         try? FolderSizeCalculator.measure(folder)
     }
 

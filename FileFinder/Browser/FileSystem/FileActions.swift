@@ -42,6 +42,12 @@ private final class CopyRecord {
     }
 }
 
+/// Items one move, rename or trash step actually relocated.
+private final class RelocationRecord {
+    var transfers: [FileTransfer]
+    init(transfers: [FileTransfer]) { self.transfers = transfers }
+}
+
 nonisolated struct CopyChangedError: LocalizedError {
     let name: String
     var errorDescription: String? {
@@ -166,12 +172,24 @@ final class FileActions {
 
     // MARK: - Undo registration
 
-    /// `done` already happened; undoing it moves everything back, and redoing moves it again.
+    /// `done` already happened; undoing it moves those items back.
     private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer]) {
+        registerRelocationUndo(actionName, RelocationRecord(transfers: done))
+    }
+
+    /// Undo and redo hand each other a record of what their disk work really moved, so a step
+    /// that stopped partway is reversed only as far as it got.
+    private func registerRelocationUndo(_ actionName: String, _ record: RelocationRecord) {
         registerUndo(actionName) { actions in
-            let inverse = done.reversed().map(\.reversed)
-            actions.registerRelocationUndo(actionName, inverse)
-            actions.enqueue { await Self.performMoves(inverse) }
+            let reverse = RelocationRecord(transfers: [])
+            actions.registerRelocationUndo(actionName, reverse)
+            actions.enqueue {
+                // Read the record when the work runs: the step before it has finished by then.
+                let plan = record.transfers.reversed().map(\.reversed)
+                let result = await Self.performMoves(plan, stopOnError: false)
+                reverse.transfers = result.done
+                return result
+            }
         }
     }
 
@@ -287,7 +305,10 @@ final class FileActions {
         return result
     }
 
-    @concurrent private nonisolated static func performMoves(_ plan: [FileTransfer]) async -> BatchResult {
+    /// Undo/redo passes `stopOnError: false` to put back as much as possible.
+    @concurrent private nonisolated static func performMoves(
+        _ plan: [FileTransfer], stopOnError: Bool = true
+    ) async -> BatchResult {
         var result = BatchResult()
         for transfer in plan {
             do {
@@ -295,7 +316,7 @@ final class FileActions {
                 result.done.append(transfer)
             } catch {
                 result.error = error
-                break
+                if stopOnError { break }
             }
         }
         return result
