@@ -14,6 +14,11 @@ enum IconSize: Int, CaseIterable {
     var smaller: IconSize? { IconSize(rawValue: rawValue - 1) }
 }
 
+/// An arrow-key step through the card grid.
+enum SelectionMove {
+    case left, right, up, down
+}
+
 /// Why the current folder couldn't be listed.
 struct LoadFailure: Equatable {
     let message: String
@@ -76,6 +81,8 @@ final class BrowserModel {
     var quickLookURL: URL?
     var alertMessage: String?
     @ObservationIgnored private var selectionAnchor: URL?
+    /// The item the last click or arrow key landed on; the grid scrolls it into view.
+    private(set) var selectionCursor: URL?
 
     var sortOrder: [KeyPathComparator<FileItem>] = [KeyPathComparator(\.name, comparator: .localizedStandard)] {
         didSet { applySort() }
@@ -184,6 +191,8 @@ final class BrowserModel {
         selection = []
         renamingURL = nil
         quickLookURL = nil
+        selectionCursor = nil
+        selectionAnchor = nil
         folderStats = [:]
         unmeasurableFolders = []
         measuring = []
@@ -405,6 +414,38 @@ final class BrowserModel {
             selection = [item.url]
         }
         selectionAnchor = item.url
+        selectionCursor = item.url
+    }
+
+    /// Card-view arrow keys: ←/→ step one item (wrapping across rows), ↑/↓ one row of `columns`.
+    /// Stops at the edges. `extending` (⇧) selects the range from where the selection started.
+    func moveSelection(_ move: SelectionMove, columns: Int, extending: Bool) {
+        guard !items.isEmpty else { return }
+        let urls = items.map(\.url)
+        let columns = max(1, columns)
+        let current = selectionCursor.flatMap { selection.contains($0) ? urls.firstIndex(of: $0) : nil }
+            ?? urls.firstIndex(where: selection.contains)
+
+        let target: Int
+        if let index = current {
+            switch move {
+            case .left: target = max(0, index - 1)
+            case .right: target = min(urls.count - 1, index + 1)
+            case .up: target = index - columns >= 0 ? index - columns : index
+            case .down: target = index + columns < urls.count ? index + columns : index
+            }
+        } else {
+            target = (move == .right || move == .down) ? 0 : urls.count - 1
+        }
+
+        let targetURL = urls[target]
+        if extending, let anchor = selectionAnchor, let anchorIndex = urls.firstIndex(of: anchor) {
+            selection = Set(urls[min(anchorIndex, target)...max(anchorIndex, target)])
+        } else {
+            selection = [targetURL]
+            selectionAnchor = targetURL
+        }
+        selectionCursor = targetURL
     }
 
     func selectAll() { selection = Set(items.map(\.url)) }

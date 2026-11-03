@@ -1,45 +1,84 @@
 import AppKit
 import SwiftUI
 
-/// Card view: real previews, folder size and item count under each folder.
+/// Card view: real previews, folder size and item count under each folder. Arrow keys move the
+/// selection (⇧ extends), ⌘↓ opens it.
 struct FileGridView: View {
     let model: BrowserModel
-    /// Focus lets Space (Quick Look) and Return (rename) reach the window's key handlers.
+    /// Focus lets arrow keys, Space (Quick Look) and Return (rename) reach the key handlers,
+    /// which must sit on the focused view itself.
     @FocusState private var isFocused: Bool
+    @State private var width: CGFloat = 0
 
-    private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: model.iconSize.cardSide + 48), spacing: 12, alignment: .top)]
+    private var columnCount: Int {
+        FileGridLayout.columns(
+            forWidth: width - FileGridLayout.padding * 2,
+            minimumItemWidth: FileGridLayout.minimumItemWidth(for: model.iconSize),
+            spacing: FileGridLayout.spacing)
     }
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(model.items) { item in
-                    FileCard(model: model, item: item, isSelected: model.selection.contains(item.url))
-                        .contentShape(.rect)
-                        .onTapGesture(count: 2) { model.open([item.url]) }
-                        .onTapGesture {
-                            isFocused = true
-                            model.click(item, modifiers: NSEvent.modifierFlags)
-                        }
-                        .contextMenu {
-                            FileContextMenu(
-                                model: model,
-                                urls: model.selection.contains(item.url) ? model.selection : [item.url])
-                        }
-                }
+        ScrollViewReader { proxy in
+            ScrollView {
+                grid(columnCount: columnCount)
             }
-            .padding(16)
+            .onChange(of: model.selectionCursor) { _, cursor in
+                guard let cursor else { return }
+                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(cursor) }
+            }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { handleArrow($0) }
         .contentShape(.rect)
         .onTapGesture {
             isFocused = true
             model.selection = []
         }
         .contextMenu { FileContextMenu(model: model, urls: []) }
+    }
+
+    private func grid(columnCount: Int) -> some View {
+        let columns = Array(
+            repeating: GridItem(.flexible(), spacing: FileGridLayout.spacing, alignment: .top), count: columnCount)
+        return LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(model.items) { item in
+                FileCard(model: model, item: item, isSelected: model.selection.contains(item.url))
+                    .id(item.url)
+                    .contentShape(.rect)
+                    .onTapGesture(count: 2) { model.open([item.url]) }
+                    .onTapGesture {
+                        isFocused = true
+                        model.click(item, modifiers: NSEvent.modifierFlags)
+                    }
+                    .contextMenu {
+                        FileContextMenu(
+                            model: model,
+                            urls: model.selection.contains(item.url) ? model.selection : [item.url])
+                    }
+            }
+        }
+        .padding(FileGridLayout.padding)
+    }
+
+    private func handleArrow(_ press: KeyPress) -> KeyPress.Result {
+        guard !model.isTyping else { return .ignored }
+        if press.modifiers.contains(.command) {
+            // ⌘↓ opens like Finder; ⌘↑ (Enclosing Folder) is handled by the Go menu.
+            guard press.key == .downArrow, !model.selection.isEmpty else { return .ignored }
+            model.openSelection()
+            return .handled
+        }
+        let move: SelectionMove = switch press.key {
+        case .leftArrow: .left
+        case .rightArrow: .right
+        case .upArrow: .up
+        default: .down
+        }
+        model.moveSelection(move, columns: columnCount, extending: press.modifiers.contains(.shift))
+        return .handled
     }
 }
 
