@@ -31,6 +31,8 @@ final class BrowserModel {
     private(set) var availableBytes: Int64?
     private(set) var loadError: String?
     private var rawItems: [FileItem] = []
+    /// Folders with a measurement in flight, so overlapping refreshes don't walk them twice.
+    @ObservationIgnored private var measuring: Set<URL> = []
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -130,6 +132,7 @@ final class BrowserModel {
         renamingURL = nil
         quickLookURL = nil
         folderStats = [:]
+        measuring = []
         items = []
         rawItems = []
     }
@@ -190,7 +193,11 @@ final class BrowserModel {
     }
 
     private func measureFolders() async {
-        let pending = rawItems.filter { $0.isDirectory && folderStats[$0.url] == nil }.map(\.url)
+        let pending = rawItems
+            .filter { $0.isDirectory && folderStats[$0.url] == nil && !measuring.contains($0.url) }
+            .map(\.url)
+        measuring.formUnion(pending)
+        defer { measuring.subtract(pending) }
         var queue = pending.makeIterator()
         await withTaskGroup(of: (URL, FolderStats?).self) { group in
             for _ in 0..<4 {
