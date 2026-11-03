@@ -89,16 +89,14 @@ struct BrowserWindow: View {
         }
     }
 
-    private var isTyping: Bool { model.renamingURL != nil || model.isEditingPath }
-
     private func handleSpace() -> KeyPress.Result {
-        guard !isTyping, !model.selection.isEmpty else { return .ignored }
+        guard !model.isTyping, !model.selection.isEmpty else { return .ignored }
         model.toggleQuickLook()
         return .handled
     }
 
     private func handleReturn() -> KeyPress.Result {
-        guard !isTyping, model.selection.count == 1 else { return .ignored }
+        guard !model.isTyping, model.selection.count == 1 else { return .ignored }
         model.beginRename()
         return .handled
     }

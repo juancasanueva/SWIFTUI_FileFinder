@@ -72,6 +72,8 @@ final class BrowserModel {
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var canGoUp: Bool { currentFolder.path != "/" }
+    /// A rename or path field has keyboard focus; file shortcuts must not act on the selection.
+    var isTyping: Bool { renamingURL != nil || isEditingPath }
     var selectedItems: [FileItem] { items.filter { selection.contains($0.url) } }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
@@ -150,11 +152,17 @@ final class BrowserModel {
     /// Loads the folder, measures sub-folders and keeps refreshing while the folder changes.
     func run() async {
         let folder = currentFolder
+        // Start watching before the first listing so changes made meanwhile are not missed.
+        let changes = DirectoryWatcher.changes(of: folder)
         await reload()
-        await measureFolders()
-        for await _ in DirectoryWatcher.changes(of: folder) {
-            await reload()
-            await measureFolders()
+        await withTaskGroup(of: Void.self) { group in
+            // Measuring can take minutes in big trees; it must not block refreshes.
+            group.addTask { await self.measureFolders() }
+            for await _ in changes {
+                await reload()
+                group.addTask { await self.measureFolders() }
+            }
+            group.cancelAll()
         }
         // The stream ends when the folder is deleted or renamed: step out of it.
         if !Task.isCancelled, folder == currentFolder, !FileManager.default.fileExists(atPath: folder.path) {
@@ -167,14 +175,14 @@ final class BrowserModel {
         let hidden = showHidden
         do {
             let listing = try await Self.list(folder, showHidden: hidden)
-            guard folder == currentFolder else { return }
+            guard folder == currentFolder, hidden == showHidden else { return }
             rawItems = listing
             loadError = nil
             applySort()
             selection.formIntersection(listing.map(\.url))
             availableBytes = await Self.freeSpace(at: folder)
         } catch {
-            guard folder == currentFolder else { return }
+            guard folder == currentFolder, hidden == showHidden else { return }
             rawItems = []
             items = []
             loadError = error.localizedDescription

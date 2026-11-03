@@ -4,6 +4,8 @@ import SwiftUI
 /// Card view: real previews, folder size and item count under each folder.
 struct FileGridView: View {
     let model: BrowserModel
+    /// Focus lets Space (Quick Look) and Return (rename) reach the window's key handlers.
+    @FocusState private var isFocused: Bool
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: model.iconSize.cardSide + 48), spacing: 12, alignment: .top)]
@@ -16,7 +18,10 @@ struct FileGridView: View {
                     FileCard(model: model, item: item, isSelected: model.selection.contains(item.url))
                         .contentShape(.rect)
                         .onTapGesture(count: 2) { model.open([item.url]) }
-                        .onTapGesture { model.click(item, modifiers: NSEvent.modifierFlags) }
+                        .onTapGesture {
+                            isFocused = true
+                            model.click(item, modifiers: NSEvent.modifierFlags)
+                        }
                         .contextMenu {
                             FileContextMenu(
                                 model: model,
@@ -26,8 +31,14 @@ struct FileGridView: View {
             }
             .padding(16)
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isFocused)
         .contentShape(.rect)
-        .onTapGesture { model.selection = [] }
+        .onTapGesture {
+            isFocused = true
+            model.selection = []
+        }
         .contextMenu { FileContextMenu(model: model, urls: []) }
     }
 }

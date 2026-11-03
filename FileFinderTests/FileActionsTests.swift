@@ -93,6 +93,27 @@ struct FileActionsTests {
         #expect(exists(source))
     }
 
+    @Test("Copying a folder into itself is refused without creating anything")
+    func copyIntoItself() throws {
+        let folder = try dir.folder("D")
+        try dir.file("D/in.txt")
+        let nested = try dir.folder("D/inner")
+
+        #expect(throws: FileActionError.cannotCopyIntoItself) { try actions.copy([folder], into: folder) }
+        #expect(throws: FileActionError.cannotCopyIntoItself) { try actions.copy([folder], into: nested) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["in.txt", "inner"])
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("Moving a folder into itself is refused")
+    func moveIntoItself() throws {
+        let folder = try dir.folder("D")
+        let nested = try dir.folder("D/inner")
+
+        #expect(throws: FileActionError.cannotCopyIntoItself) { try actions.move([folder], into: nested) }
+        #expect(exists(folder))
+    }
+
     // MARK: - Move
 
     @Test("Move relocates items and undo moves them back")
@@ -183,6 +204,17 @@ struct FileActionsTests {
 
         #expect(pasted == [target.appendingPathComponent("x.txt")])
         #expect(!exists(source))
+    }
+
+    @Test("Cut then paste into the same folder keeps the clipboard")
+    func cutPasteSameFolderKeepsClipboard() throws {
+        let source = try dir.file("x.txt")
+
+        actions.cutToClipboard([source])
+        #expect(try actions.paste(into: dir.url).isEmpty)
+
+        #expect(actions.canPaste)
+        #expect(exists(source))
     }
 
     @Test("Pasting with an empty clipboard does nothing")

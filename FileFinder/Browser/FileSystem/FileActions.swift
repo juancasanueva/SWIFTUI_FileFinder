@@ -4,11 +4,13 @@ import Observation
 enum FileActionError: LocalizedError, Equatable {
     case invalidName
     case nameTaken(String)
+    case cannotCopyIntoItself
 
     var errorDescription: String? {
         switch self {
         case .invalidName: "That name can't be used. Names can't be empty or contain \"/\"."
         case .nameTaken(let name): "The name \"\(name)\" is already taken. Please choose a different name."
+        case .cannotCopyIntoItself: "A folder can't be copied or moved into itself."
         }
     }
 }
@@ -21,7 +23,7 @@ final class FileActions {
 
     private var fileManager: FileManager { .default }
 
-    init(clipboard: FileClipboard = FileClipboard()) {
+    init(clipboard: FileClipboard = .shared) {
         self.clipboard = clipboard
     }
 
@@ -49,6 +51,7 @@ final class FileActions {
     /// Copies items into `folder`, keeping both on name clashes. Returns the created URLs.
     @discardableResult
     func copy(_ urls: [URL], into folder: URL) throws -> [URL] {
+        try Self.rejectNesting(urls, into: folder)
         var created: [URL] = []
         defer {
             if !created.isEmpty {
@@ -59,7 +62,13 @@ final class FileActions {
         for source in urls {
             let copyStyle = Self.isSameFolder(source.deletingLastPathComponent(), folder)
             let destination = Self.uniqueDestination(for: source, in: folder, copyStyle: copyStyle)
-            try fileManager.copyItem(at: source, to: destination)
+            do {
+                try fileManager.copyItem(at: source, to: destination)
+            } catch {
+                // Don't leave a half-copied item behind.
+                if fileManager.fileExists(atPath: destination.path) { trashSilently([destination]) }
+                throw error
+            }
             created.append(destination)
         }
         return created
@@ -68,6 +77,7 @@ final class FileActions {
     /// Moves items into `folder`. Items already in `folder` are skipped. Returns the new URLs.
     @discardableResult
     func move(_ urls: [URL], into folder: URL) throws -> [URL] {
+        try Self.rejectNesting(urls, into: folder)
         let pairs = urls
             .filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
             .map { (from: $0, to: Self.uniqueDestination(for: $0, in: folder, copyStyle: false)) }
@@ -106,7 +116,7 @@ final class FileActions {
         guard !urls.isEmpty else { return [] }
         guard isCut || forceMove else { return try copy(urls, into: folder) }
         let moved = try move(urls, into: folder)
-        clipboard.write(moved, cut: false)
+        if !moved.isEmpty { clipboard.write(moved, cut: false) }
         return moved
     }
 
@@ -138,6 +148,17 @@ final class FileActions {
         undoManager.registerUndo(withTarget: self) { handler($0) }
         undoManager.setActionName(actionName)
         if needsGroup { undoManager.endUndoGrouping() }
+    }
+
+    /// Throws when `folder` is one of `urls` or lies inside one of them.
+    nonisolated static func rejectNesting(_ urls: [URL], into folder: URL) throws {
+        let target = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        for url in urls {
+            let source = url.resolvingSymlinksInPath().standardizedFileURL.path
+            if target == source || target.hasPrefix(source + "/") {
+                throw FileActionError.cannotCopyIntoItself
+            }
+        }
     }
 
     nonisolated static func isSameFolder(_ a: URL, _ b: URL) -> Bool {

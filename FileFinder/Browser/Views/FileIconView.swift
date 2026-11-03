@@ -18,7 +18,7 @@ struct FileIconView: View {
             .aspectRatio(contentMode: .fit)
             .frame(width: side, height: side)
             .task(id: "\(item.url.path)|\(side)|\(preview)") {
-                guard preview, !item.isDirectory else { thumbnail = nil; return }
+                guard preview, !item.isNavigable else { thumbnail = nil; return }
                 thumbnail = await Self.thumbnail(for: item.url, side: side, scale: displayScale)
             }
             .accessibilityHidden(true)

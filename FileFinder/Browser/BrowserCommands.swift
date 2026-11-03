@@ -6,15 +6,16 @@ struct BrowserCommands: Commands {
     @FocusedValue(\.browser) private var browser
 
     private var hasSelection: Bool { !(browser?.selection.isEmpty ?? true) }
+    private var isTyping: Bool { browser?.isTyping ?? false }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut("o")
-                .disabled(!hasSelection)
+                .disabled(!hasSelection || isTyping)
             Button("Move to Trash") { browser?.trashSelection() }
                 .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(!hasSelection)
+                .disabled(!hasSelection || isTyping)
         }
 
         // Replacing the pasteboard group would break copy/paste inside text fields, so these
@@ -28,6 +29,7 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("v")
             Button("Move Item Here") { browser?.paste(forceMove: true) }
                 .keyboardShortcut("v", modifiers: [.command, .option])
+                .disabled(isTyping)
             Button("Select All") { textOr(#selector(NSText.selectAll(_:))) { browser?.selectAll() } }
                 .keyboardShortcut("a")
         }
@@ -61,7 +63,7 @@ struct BrowserCommands: Commands {
                 .disabled(!(browser?.canGoForward ?? false))
             Button("Enclosing Folder") { browser?.goUp() }
                 .keyboardShortcut(.upArrow)
-                .disabled(!(browser?.canGoUp ?? false))
+                .disabled(!(browser?.canGoUp ?? false) || isTyping)
             Divider()
             Button("Home") { go(to: "") }.keyboardShortcut("h", modifiers: [.command, .shift])
             Button("Desktop") { go(to: "Desktop") }.keyboardShortcut("d", modifiers: [.command, .shift])
