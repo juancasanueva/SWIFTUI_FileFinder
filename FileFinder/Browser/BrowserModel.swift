@@ -59,8 +59,10 @@ final class BrowserModel {
     @ObservationIgnored private var measuring: Set<URL> = []
     /// Bumped whenever a folder's size is invalidated, to recognize stale measurements.
     @ObservationIgnored private var generations: [URL: Int] = [:]
-    /// Folders that changed deep inside while being measured; measured again afterwards.
-    @ObservationIgnored private var changedWhileMeasuring: Set<URL> = []
+    /// Names of sub-folders that changed below their direct contents, waiting to be re-measured.
+    @ObservationIgnored private var deeplyChanged: Set<String> = []
+    @ObservationIgnored private var lastDeepRefresh: [URL: ContinuousClock.Instant] = [:]
+    static let deepRefreshInterval: Duration = .seconds(10)
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -180,7 +182,8 @@ final class BrowserModel {
         unmeasurableFolders = []
         measuring = []
         generations = [:]
-        changedWhileMeasuring = []
+        deeplyChanged = []
+        lastDeepRefresh = [:]
         items = []
         rawItems = []
         loadFailure = nil
@@ -206,16 +209,22 @@ final class BrowserModel {
         let folder = currentFolder
         // Start watching before the first listing so changes made meanwhile are not missed.
         let changes = DirectoryWatcher.changes(of: folder)
-        let deepChanges = SubtreeWatcher.changes(of: folder)
+        // Watching the whole disk from "/" would only re-walk system folders; skip it there.
+        let deepChanges = folder.path == "/" ? nil : SubtreeWatcher.changes(of: folder)
         await reload()
         await withTaskGroup(of: Void.self) { group in
             // Measuring can take minutes in big trees; it must not block refreshes.
             group.addTask { await self.measureFolders() }
-            group.addTask {
-                for await paths in deepChanges {
-                    await self.handleDeepChanges(paths, in: folder)
-                    // Busy trees (like ~/Library) change constantly; re-measure at most every few seconds.
-                    try? await Task.sleep(for: .seconds(2))
+            if let deepChanges {
+                // Collecting is cheap and keeps up with FSEvents; refreshing is batched separately.
+                group.addTask {
+                    for await paths in deepChanges { await self.noteDeepChanges(paths, in: folder) }
+                }
+                group.addTask {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(2))
+                        await self.refreshDeeplyChangedFolders(in: folder)
+                    }
                 }
             }
             for await _ in changes {
@@ -269,25 +278,35 @@ final class BrowserModel {
         generations[url, default: 0] += 1
     }
 
-    /// Re-measures sub-folders that changed somewhere below their direct contents.
-    private func handleDeepChanges(_ paths: [String], in folder: URL) async {
-        let names = SubtreeWatcher.changedChildren(paths: paths, in: folder)
-        guard folder == currentFolder, !names.isEmpty else { return }
-        for item in rawItems where item.isDirectory && names.contains(item.name) {
-            if measuring.contains(item.url) {
-                // Let the running walk finish and show its value, then measure once more.
-                changedWhileMeasuring.insert(item.url)
-            } else {
-                invalidate(item.url)
-            }
+    /// Records sub-folders that changed somewhere below their direct contents.
+    private func noteDeepChanges(_ paths: [String], in folder: URL) {
+        guard folder == currentFolder else { return }
+        deeplyChanged.formUnion(SubtreeWatcher.changedChildren(paths: paths, in: folder))
+    }
+
+    /// Re-measures deeply changed sub-folders, all pending changes at once, each folder at most
+    /// once per `deepRefreshInterval`, keeping its previous size on screen meanwhile. Busy trees
+    /// such as ~/Library change constantly; this keeps them from being re-walked non-stop.
+    private func refreshDeeplyChangedFolders(in folder: URL) async {
+        guard folder == currentFolder, !deeplyChanged.isEmpty else { return }
+        deeplyChanged.formIntersection(rawItems.map(\.name))
+        let now = ContinuousClock.now
+        var due: Set<URL> = []
+        for item in rawItems where item.isDirectory && deeplyChanged.contains(item.name) {
+            // Still being walked, or walked recently: stay pending for a later round.
+            if measuring.contains(item.url) { continue }
+            if let last = lastDeepRefresh[item.url], now - last < Self.deepRefreshInterval { continue }
+            deeplyChanged.remove(item.name)
+            lastDeepRefresh[item.url] = now
+            due.insert(item.url)
         }
-        await measureFolders()
+        if !due.isEmpty { await measureFolders(refreshing: due) }
     }
 
     /// Measures every sub-folder without a size. Folders invalidated while being measured are
     /// measured again (a few rounds at most), so none is left on "Calculating…".
-    func measureFolders() async {
-        var refreshing: Set<URL> = []
+    func measureFolders(refreshing initial: Set<URL> = []) async {
+        var refreshing = initial
         for _ in 0..<3 {
             let remeasure = await measurePass(refreshing: refreshing)
             guard !remeasure.isEmpty, !Task.isCancelled else { return }
@@ -320,7 +339,6 @@ final class BrowserModel {
                 let stillListed = rawItems.contains { $0.url == url }
                 if stillListed, generations[url, default: 0] == generationAtStart[url] {
                     if let stats { folderStats[url] = stats } else { unmeasurableFolders.insert(url) }
-                    if changedWhileMeasuring.remove(url) != nil { remeasure.append(url) }
                 } else if stillListed {
                     remeasure.append(url)  // invalidated mid-walk: the result is stale
                 }

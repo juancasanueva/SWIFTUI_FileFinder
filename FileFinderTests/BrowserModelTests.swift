@@ -214,6 +214,30 @@ struct BrowserModelTests {
         try await waitFor { model.folderStats[folder.canonical]?.totalBytes == 15 }
     }
 
+    @Test("A sub-folder that keeps changing is re-measured a few times, not once per change",
+          .timeLimit(.minutes(1)))
+    func busyFolderIsNotRemeasuredNonStop() async throws {
+        let busy = try dir.folder("Caches")
+        try dir.file("Caches/deep/seed", bytes: 1)
+        let counter = MeasureCounter()
+        let model = makeModel(measurer: { url in
+            await counter.record(url)
+            return try? FolderSizeCalculator.measure(url)
+        })
+        let running = Task { await model.run() }
+        defer { running.cancel() }
+        try await waitFor { model.folderStats[busy.canonical] != nil }
+
+        for index in 0..<40 {   // ~4 s of constant activity deep inside
+            try dir.file("Caches/deep/f\(index)", bytes: 1)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .seconds(5))
+
+        #expect(await counter.count(for: busy.canonical) <= 3)
+        #expect(model.folderStats[busy.canonical] != nil)   // never left on "Calculating…"
+    }
+
     /// Polls `condition` until it holds (file-system events arrive asynchronously).
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 {
@@ -330,4 +354,10 @@ private actor MeasureGate {
         releaseWaiter?.resume()
         releaseWaiter = nil
     }
+}
+
+private actor MeasureCounter {
+    private var counts: [URL: Int] = [:]
+    func record(_ url: URL) { counts[url.canonical, default: 0] += 1 }
+    func count(for url: URL) -> Int { counts[url, default: 0] }
 }

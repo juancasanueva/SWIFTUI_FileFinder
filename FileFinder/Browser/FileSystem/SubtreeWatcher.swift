@@ -55,8 +55,10 @@ nonisolated enum SubtreeWatcher {
         }
         var names: Set<String> = []
         for path in paths {
-            for root in roots where path.hasPrefix(root + "/") {
-                let components = path.dropFirst(root.count + 1).split(separator: "/")
+            for root in roots {
+                let prefix = root.hasSuffix("/") ? root : root + "/"
+                guard path.hasPrefix(prefix) else { continue }
+                let components = path.dropFirst(prefix.count).split(separator: "/")
                 if components.count >= 2 { names.insert(String(components[0])) }
             }
         }

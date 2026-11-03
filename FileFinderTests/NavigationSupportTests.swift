@@ -144,6 +144,12 @@ struct SubtreeWatcherTests {
         #expect(names == ["app", "web"])
     }
 
+    @Test("Works when the watched folder is the root of the disk")
+    func changedChildrenAtRoot() {
+        let names = SubtreeWatcher.changedChildren(paths: ["/Users/me/file", "/tmp"], in: URL(filePath: "/"))
+        #expect(names == ["Users"])
+    }
+
     @Test("Reports a change made deep inside the watched folder", .timeLimit(.minutes(1)))
     func emitsDeepChange() async throws {
         let dir = try TemporaryDirectory()
