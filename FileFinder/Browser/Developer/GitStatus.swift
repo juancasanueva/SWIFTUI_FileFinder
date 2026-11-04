@@ -64,21 +64,9 @@ nonisolated enum GitStatusReader {
         return (String(head.prefix(7)), true)
     }
 
-    /// A folder's repository config is untrusted (a downloaded project can set anything), and
-    /// `git status` would run some of it: the `core.fsmonitor` hook, and clean filters for
-    /// files whose stat info changed. Both are switched off, and submodules (with configs of
-    /// their own) aren't entered. `-c` settings also reach any git that git starts.
-    static func statusArguments(root: URL, filterDrivers: [String] = []) -> [String] {
-        var arguments = ["--no-optional-locks", "-c", "core.fsmonitor=false"]
-        for driver in filterDrivers {
-            arguments += [
-                "-c", "filter.\(driver).clean=", "-c", "filter.\(driver).process=",
-                "-c", "filter.\(driver).required=false",
-            ]
-        }
-        return arguments + [
-            "-C", root.path, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all",
-        ]
+    /// Status touches no submodule: each has a config of its own.
+    static func statusArguments(root: URL) -> [String] {
+        ["--no-optional-locks", "-C", root.path, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all"]
     }
 
     /// Lists config names only; reading config never runs anything.
@@ -86,47 +74,81 @@ nonisolated enum GitStatusReader {
         ["--no-optional-locks", "-C", root.path, "config", "--name-only", "--get-regexp", "^filter\\."]
     }
 
-    /// Driver names from `filter.<driver>.<key>` config names. Names with "=" are left out:
-    /// they can't be overridden with `-c`, and status then fails safely instead.
+    /// Driver names from `filter.<driver>.<key>` config names, verbatim: dotted, empty and
+    /// "=" names included. A `filter.<key>` line (a section with no driver) names none.
     static func filterDrivers(configNames: String) -> [String] {
         var drivers: [String] = []
         for line in configNames.split(whereSeparator: \.isNewline) {
-            guard line.hasPrefix("filter."), let lastDot = line.lastIndex(of: ".") else { continue }
-            let name = String(line[line.index(line.startIndex, offsetBy: "filter.".count)..<lastDot])
-            if !name.isEmpty, !name.contains("="), !drivers.contains(name) { drivers.append(name) }
+            guard line.hasPrefix("filter.") else { continue }
+            let rest = line.dropFirst("filter.".count)
+            guard let lastDot = rest.lastIndex(of: ".") else { continue }
+            let name = String(rest[..<lastDot])
+            if !drivers.contains(name) { drivers.append(name) }
         }
         return drivers
+    }
+
+    /// The environment git runs with. A folder's repository config is untrusted (a downloaded
+    /// project can set anything), and `git status` would run some of it: the `core.fsmonitor`
+    /// hook, clean filters for files whose stat info changed, and, in a partial clone missing
+    /// an object, a fetch with the remote's own commands. Overrides go in `GIT_CONFIG_KEY_n`
+    /// variables, which take any key verbatim (`-c` can't express driver names with "=") and
+    /// also reach any git that git starts. Inherited `GIT_*` variables are dropped so nothing
+    /// from the app's launch environment redirects git.
+    static func gitEnvironment(inherited: [String: String], filterDrivers: [String]) -> [String: String] {
+        var environment = inherited.filter { !$0.key.hasPrefix("GIT_") }
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_NO_LAZY_FETCH"] = "1"
+        var overrides = [("core.fsmonitor", "false")]
+        for driver in filterDrivers {
+            overrides += [
+                ("filter.\(driver).clean", ""), ("filter.\(driver).process", ""), ("filter.\(driver).required", "false"),
+            ]
+        }
+        environment["GIT_CONFIG_COUNT"] = String(overrides.count)
+        for (index, (key, value)) in overrides.enumerated() {
+            environment["GIT_CONFIG_KEY_\(index)"] = key
+            environment["GIT_CONFIG_VALUE_\(index)"] = value
+        }
+        return environment
     }
 
     static func changeCount(porcelain: String) -> Int {
         porcelain.split(whereSeparator: \.isNewline).count
     }
 
-    /// Branch and change count for the repository `folder` is in. Blocking: call off the main actor.
+    /// Branch and change count for the repository `folder` is in. Blocking: call off the main
+    /// actor. Both git calls together get `timeout`.
     static func status(of folder: URL, git: URL?, timeout: TimeInterval = 5) -> GitStatus? {
         guard let repository = repository(containing: folder),
               let head = head(gitDir: repository.gitDir) else { return nil }
-        let changes = git.flatMap { runStatus(git: $0, root: repository.root, timeout: timeout) }
+        let changes = git.flatMap { runStatus(git: $0, root: repository.root, deadline: Date.now.addingTimeInterval(timeout)) }
         return GitStatus(root: repository.root, branch: head.branch, isDetached: head.isDetached, changes: changes)
     }
 
-    private static func runStatus(git: URL, root: URL, timeout: TimeInterval) -> Int? {
-        // `--get-regexp` exits with 1 when nothing matches: no filters.
-        let names = run(git, filterConfigArguments(root: root), timeout: timeout, acceptedStatuses: [0, 1]) ?? ""
-        let arguments = statusArguments(root: root, filterDrivers: filterDrivers(configNames: names))
-        return run(git, arguments, timeout: timeout).map { changeCount(porcelain: $0) }
+    private static func runStatus(git: URL, root: URL, deadline: Date) -> Int? {
+        let inherited = ProcessInfo.processInfo.environment
+        // `--get-regexp` exits with 1 when nothing matches: no filters. Without the list the
+        // filters can't be switched off, so status doesn't run at all.
+        guard let names = run(git, filterConfigArguments(root: root),
+                              environment: gitEnvironment(inherited: inherited, filterDrivers: []),
+                              deadline: deadline, acceptedStatuses: [0, 1]) else { return nil }
+        let environment = gitEnvironment(inherited: inherited, filterDrivers: filterDrivers(configNames: names))
+        return run(git, statusArguments(root: root), environment: environment, deadline: deadline)
+            .map { changeCount(porcelain: $0) }
     }
 
-    /// Runs git and returns its output, or `nil` on failure or timeout.
+    /// Runs git and returns its output, or `nil` on failure or once `deadline` passes.
     private static func run(
-        _ git: URL, _ arguments: [String], timeout: TimeInterval, acceptedStatuses: Set<Int32> = [0]
+        _ git: URL, _ arguments: [String], environment: [String: String], deadline: Date,
+        acceptedStatuses: Set<Int32> = [0]
     ) -> String? {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { return nil }
         let process = Process()
         process.executableURL = git
         process.arguments = arguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
-        environment["GIT_TERMINAL_PROMPT"] = "0"
         process.environment = environment
         let output = Pipe()
         process.standardOutput = output
@@ -137,8 +159,8 @@ nonisolated enum GitStatusReader {
         } catch {
             return nil
         }
-        // A huge work tree must not keep the path bar waiting forever.
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+        // A huge work tree (or a FIFO in the config) must not keep the path bar waiting.
+        DispatchQueue.global().asyncAfter(deadline: .now() + remaining) {
             if process.isRunning { process.terminate() }
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()

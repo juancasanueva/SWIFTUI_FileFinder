@@ -161,14 +161,93 @@ struct GitStatusTests {
         #expect(FileManager.default.fileExists(atPath: marker))
     }
 
-    @Test("Filter drivers are read from config names, including dotted ones")
+    @Test("Filter driver names are read verbatim, including dotted, empty and '=' names; malformed keys are ignored")
     func filterDriverNames() {
-        let names = GitStatusReader.filterDrivers(configNames: "filter.lfs.clean\nfilter.lfs.process\nfilter.a.b.smudge\nfilter.x=y.clean\n")
-        #expect(names == ["lfs", "a.b"])
-        let arguments = GitStatusReader.statusArguments(root: URL(filePath: "/repo"), filterDrivers: ["lfs"])
-        #expect(arguments.contains("core.fsmonitor=false"))
-        #expect(arguments.contains("filter.lfs.clean=") && arguments.contains("filter.lfs.process="))
-        #expect(arguments.contains("--ignore-submodules=all"))
+        let names = GitStatusReader.filterDrivers(
+            configNames: "filter.lfs.clean\nfilter.lfs.process\nfilter.a.b.smudge\nfilter.x=y.clean\nfilter..clean\nfilter.clean\nfilter.\n")
+        #expect(names == ["lfs", "a.b", "x=y", ""])
+    }
+
+    @Test("Overrides travel as environment config, so any key is taken verbatim")
+    func overridesInEnvironment() {
+        let environment = GitStatusReader.gitEnvironment(
+            inherited: ["PATH": "/bin", "GIT_DIR": "/elsewhere", "GIT_CONFIG_PARAMETERS": "'x.y=z'"],
+            filterDrivers: ["a=b", ""])
+        #expect(environment["PATH"] == "/bin")
+        #expect(environment["GIT_DIR"] == nil && environment["GIT_CONFIG_PARAMETERS"] == nil)
+        #expect(environment["GIT_NO_LAZY_FETCH"] == "1" && environment["GIT_OPTIONAL_LOCKS"] == "0")
+        let count = Int(environment["GIT_CONFIG_COUNT"] ?? "") ?? 0
+        let pairs = (0..<count).map { (environment["GIT_CONFIG_KEY_\($0)"] ?? "", environment["GIT_CONFIG_VALUE_\($0)"] ?? "?") }
+        #expect(pairs.contains { $0 == ("core.fsmonitor", "false") })
+        #expect(pairs.contains { $0 == ("filter.a=b.clean", "") } && pairs.contains { $0 == ("filter.a=b.process", "") })
+        #expect(pairs.contains { $0 == ("filter..clean", "") } && pairs.contains { $0 == ("filter..required", "false") })
+        #expect(GitStatusReader.statusArguments(root: URL(filePath: "/repo")).contains("--ignore-submodules=all"))
+    }
+
+    /// Commits data.txt, then (after the commit, so setup never runs it) makes the driver
+    /// `attribute` with config section `section` run a marker-touching clean filter.
+    private func trapFilter(attribute: String, configLines: String) throws -> String {
+        try makeRepository()
+        try dir.file("data.txt", bytes: 4)
+        try run(["add", "data.txt"])
+        try run(["commit", "-q", "-m", "data"])
+        let marker = dir.url.appending(path: "ran").path
+        try "*.txt filter=\(attribute)\n".write(to: dir.url.appending(path: ".gitattributes"), atomically: true, encoding: .utf8)
+        let config = dir.url.appending(path: ".git/config")
+        let handle = try FileHandle(forWritingTo: config)
+        handle.seekToEndOfFile()
+        handle.write(Data(configLines.replacingOccurrences(of: "PAYLOAD", with: "sh -c 'touch \\\"\(marker)\\\"; cat'").utf8))
+        try handle.close()
+        try Data(repeating: 0x41, count: 4).write(to: dir.url.appending(path: "data.txt"))   // stat-dirty, same content
+        return marker
+    }
+
+    @Test("Filters with names -c can't express ('=' or empty) run nothing either", .enabled(if: git != nil), arguments: [
+        ("a=b", "[filter \"a=b\"]\n\tclean = \"PAYLOAD\"\n"),
+        ("", "[filter \"\"]\n\tclean = \"PAYLOAD\"\n"),
+    ])
+    func oddFilterNamesRunNothing(attribute: String, configLines: String) throws {
+        let marker = try trapFilter(attribute: attribute, configLines: configLines)
+
+        _ = GitStatusReader.status(of: dir.url, git: Self.git)
+
+        #expect(!FileManager.default.fileExists(atPath: marker))
+        try run(["status", "--porcelain"])
+        #expect(FileManager.default.fileExists(atPath: marker))   // the trap is real
+    }
+
+    @Test("A filter section without a driver name doesn't crash the reader", .enabled(if: git != nil))
+    func driverlessFilterSection() throws {
+        try makeRepository()
+        let handle = try FileHandle(forWritingTo: dir.url.appending(path: ".git/config"))
+        handle.seekToEndOfFile()
+        handle.write(Data("[filter]\n\tclean = x\n".utf8))
+        try handle.close()
+
+        let status = GitStatusReader.status(of: dir.url, git: Self.git)
+
+        #expect(status?.branch == "main")
+    }
+
+    @Test("A partial clone missing an object never fetches, so its remote's commands never run", .enabled(if: git != nil))
+    func noLazyFetch() throws {
+        try makeRepository()
+        let tree = try run(["rev-parse", "HEAD^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        try FileManager.default.removeItem(at: dir.url.appending(path: ".git/objects/\(tree.prefix(2))/\(tree.dropFirst(2))"))
+        let marker = dir.url.appending(path: "ran").path
+        try run(["config", "core.repositoryformatversion", "1"])
+        try run(["config", "extensions.partialClone", "origin"])
+        try run(["config", "remote.origin.url", "ssh://attacker.invalid/x"])
+        try run(["config", "remote.origin.promisor", "true"])
+        try run(["config", "remote.origin.uploadpack", "touch \"\(marker)\"; false"])
+        try run(["config", "core.sshCommand", "touch \"\(marker)\"; false"])
+
+        let status = GitStatusReader.status(of: dir.url, git: Self.git)
+
+        #expect(!FileManager.default.fileExists(atPath: marker))
+        #expect(status?.branch == "main")
+        try run(["status", "--porcelain"])
+        #expect(FileManager.default.fileExists(atPath: marker))   // the trap is real
     }
 
     @Test("Without git only the branch is shown")
