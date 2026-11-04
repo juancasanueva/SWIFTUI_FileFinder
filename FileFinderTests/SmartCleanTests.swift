@@ -698,9 +698,26 @@ struct SmartCleanTests {
             return FileActions.TrashWalk.system.parentOf(folder)
         })
 
-        await #expect(throws: FileActionError.movedWhileEmptying("Deep")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+        await #expect(throws: FileActionError.movedWhileEmptying("Mid")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "Deep").path).count >= 200 - 64)
+    }
+
+    @Test("A top-level folder moved out of the Trash while a folder deep inside it is emptied stops at the next item, naming it")
+    func topMovedWhileDeep() async throws {
+        for index in 0..<200 { try dir.file(".Trash/Top/A/Deep/f\(index)", bytes: 1) }
+        let top = dir.url.appending(path: ".Trash/Top")
+        let rescued = try dir.folder("Desktop").appending(path: "Top")
+        let deepInode = inode(of: top.appending(path: "A/Deep"))
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, deepInode), checks.next() == 5 { try? FileManager.default.moveItem(at: top, to: rescued) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect(throws: FileActionError.movedWhileEmptying("Top")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "A/Deep").path).count == 197)
     }
 
     @Test("A folder whose listing fails is kept with that failure")

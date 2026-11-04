@@ -496,21 +496,23 @@ final class FileActions {
             ([path] + chain.prefix(depth).dropFirst().map { displayName($0.name) } + [name.map(displayName)].compactMap { $0 })
                 .joined(separator: "/")
         }
-        // Whether chain[index]'s grandparent and every folder above are still the recorded ones,
-        // read through "../.." and so on (never a link). An ancestor that can't be read is
-        // left to the checks made when climbing back.
-        func ancestorsInPlace(_ index: Int) -> Bool {
+        // The index of the folder above chain[index]'s parent that is no longer in its recorded
+        // parent, if any; read through "../.." and so on (never a link). An ancestor that can't
+        // be read is left to the checks made when climbing back.
+        func movedAncestor(of index: Int) -> Int? {
             var relative = ".."
             for level in stride(from: index - 2, through: -1, by: -1) {
                 relative += "/.."
-                guard relative.utf8.count < Int(PATH_MAX), let found = FolderIdentity(of: current, child: relative) else { return true }
-                if found != (level < 0 ? trashIdentity : chain[level].identity) { return false }
+                guard relative.utf8.count < Int(PATH_MAX), let found = FolderIdentity(of: current, child: relative) else { return nil }
+                // chain[level + 1]'s parent isn't chain[level] (or the Trash): it was moved.
+                if found != (level < 0 ? trashIdentity : chain[level].identity) { return level + 1 }
             }
-            return true
+            return nil
         }
-        // Stops emptying this entry: part of it was moved.
-        func stopMoved() {
-            deletion.error = deletion.error ?? FileActionError.movedWhileEmptying(chain.last.map { displayName($0.name) } ?? displayName(name))
+        // Stops emptying this entry: chain[index] (the folder worked in by default) was moved.
+        func stopMoved(_ index: Int? = nil) {
+            let moved = index.map { chain[$0].name } ?? chain.last?.name ?? name
+            deletion.error = deletion.error ?? FileActionError.movedWhileEmptying(displayName(moved))
             chain.removeAll()
         }
         // Deletes anything but a folder at once; enters a folder so its entries go first.
@@ -573,10 +575,22 @@ final class FileActions {
             // An ancestor moved out takes this folder along without changing its parent: check
             // the top-level folder before every deletion, and every ancestor on entering a
             // folder and every 64 entries.
-            if last > 0, FolderIdentity(of: trash, child: chain[0].name) != chain[0].identity
-                || (chain[last].next % 64 == 0 && !ancestorsInPlace(last)) {
-                stopMoved()
-                continue
+            if last > 0 {
+                var top = stat()
+                if fstatat(trash, chain[0].name, &top, AT_SYMLINK_NOFOLLOW) != 0, errno != ENOENT {
+                    // Can't be read: report that, not a move.
+                    deletion.fail(errno, path: path)
+                    chain.removeAll()
+                    continue
+                }
+                if FolderIdentity(of: trash, child: chain[0].name) != chain[0].identity {
+                    stopMoved(0)
+                    continue
+                }
+                if chain[last].next % 64 == 0, let moved = movedAncestor(of: last) {
+                    stopMoved(moved)
+                    continue
+                }
             }
             if chain[last].next < chain[last].entries.count {
                 let child = chain[last].entries[chain[last].next]
