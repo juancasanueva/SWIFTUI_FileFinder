@@ -113,25 +113,46 @@ final class SmartCleanModel {
     }
 
     /// Ticked items that are really listed, without those inside another ticked item (trashing
-    /// the folder takes them along), each with its size.
+    /// the folder takes them along), each with its size. A duplicate set never loses every
+    /// copy: when all of them would go, the kept copy stays (or, when a ticked folder takes it,
+    /// another copy of the set).
     var itemsToClean: [(url: URL, bytes: Int64)] {
         var sizes: [URL: Int64] = [:]
         for candidate in suggestions.flatMap(\.candidates) where ticked.contains(candidate.url) {
             sizes[candidate.url] = sizes[candidate.url] ?? candidate.bytes
         }
         let paths = Set(sizes.keys.map(\.path))
-        return sizes
-            .filter { url, _ in
-                // Walk up the parents: any ticked ancestor already covers this item.
-                var parent = url.deletingLastPathComponent()
-                while parent.path != "/", parent.pathComponents.count > 1 {
-                    if paths.contains(parent.canonical.path) { return false }
-                    parent = parent.deletingLastPathComponent()
-                }
-                return true
+        var items = sizes.filter { url, _ in
+            // Walk up the parents: any ticked ancestor already covers this item.
+            var parent = url.deletingLastPathComponent()
+            while parent.path != "/", parent.pathComponents.count > 1 {
+                if paths.contains(parent.canonical.path) { return false }
+                parent = parent.deletingLastPathComponent()
             }
+            return true
+        }
+        keepOneCopyOfEachDuplicateSet(&items)
+        return items
             .map { (url: $0.key, bytes: $0.value) }
             .sorted { $0.url.path < $1.url.path }
+    }
+
+    /// Removes from `items` (top-level items, none inside another) one copy of every duplicate
+    /// set that would otherwise go entirely.
+    private func keepOneCopyOfEachDuplicateSet(_ items: inout [URL: Int64]) {
+        func goes(_ url: URL) -> Bool {
+            items.keys.contains { $0 == url || url.path.hasPrefix($0.path + "/") }
+        }
+        var sets: [URL: [URL]] = [:]
+        for candidate in suggestion(.duplicates)?.candidates ?? [] {
+            if let kept = candidate.keptCopy { sets[kept, default: []].append(candidate.url) }
+        }
+        for (kept, copies) in sets.sorted(by: { $0.key.path < $1.key.path }) {
+            let members = [kept] + copies.sorted { $0.path < $1.path }
+            guard members.allSatisfy(goes) else { continue }
+            // Only an item trashed by itself can be spared; one inside a ticked folder can't.
+            if let spared = members.first(where: { items[$0] != nil }) { items[spared] = nil }
+        }
     }
 
     /// "You could free about …".

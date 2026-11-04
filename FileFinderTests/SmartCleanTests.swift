@@ -139,6 +139,59 @@ struct SmartCleanTests {
         #expect(model.alertMessage == nil)
     }
 
+    @Test("A duplicate set never loses every copy: the kept copy ticked elsewhere stays")
+    func keptCopyTickedElsewhere() async throws {
+        let kept = try dir.file("Downloads/App.dmg", bytes: 4)
+        let copy = try dir.file("Desktop/App.dmg", bytes: 4)
+        let model = model([
+            FixedScanner(kind: .duplicates) { _ in [CleanCandidate(url: copy, bytes: 4, detail: "", keptCopy: kept)] },
+            FixedScanner(kind: .installers) { _ in [CleanCandidate(url: kept, bytes: 4, detail: "")] },
+        ])
+        await model.lookAgain()
+        #expect(model.ticked == [kept.canonical, copy.canonical])
+        #expect(model.itemsToClean.map(\.url) == [copy.canonical])
+        #expect(model.tickedBytes == 4)
+
+        await model.clean()
+
+        #expect(exists("Downloads/App.dmg") && !exists("Desktop/App.dmg"))
+    }
+
+    @Test("A kept copy inside a ticked folder: one other copy of the set stays")
+    func keptCopyInsideTickedFolder() async throws {
+        let folder = try dir.folder("Downloads/Old")
+        let kept = try dir.file("Downloads/Old/movie.mov", bytes: 4)
+        let first = try dir.file("Desktop/movie.mov", bytes: 4)
+        let second = try dir.file("Documents/movie.mov", bytes: 4)
+        let model = model([
+            FixedScanner(kind: .duplicates) { _ in [
+                CleanCandidate(url: first, bytes: 4, detail: "", keptCopy: kept),
+                CleanCandidate(url: second, bytes: 4, detail: "", keptCopy: kept),
+            ] },
+            FixedScanner(kind: .developerCaches) { _ in [CleanCandidate(url: folder, bytes: 4, detail: "")] },
+        ])
+        await model.lookAgain()
+
+        await model.clean()
+
+        #expect(!exists("Downloads/Old"))
+        #expect(exists("Desktop/movie.mov") != exists("Documents/movie.mov"))   // exactly one copy left
+    }
+
+    @Test("Duplicates alone still trash every copy but the kept one")
+    func duplicatesAlone() async throws {
+        let kept = try dir.file("Documents/a.bin", bytes: 4)
+        let copy = try dir.file("Desktop/a.bin", bytes: 4)
+        let model = model([
+            FixedScanner(kind: .duplicates) { _ in [CleanCandidate(url: copy, bytes: 4, detail: "", keptCopy: kept)] },
+        ])
+        await model.lookAgain()
+
+        await model.clean()
+
+        #expect(exists("Documents/a.bin") && !exists("Desktop/a.bin"))
+    }
+
     @Test("Nothing ticked: Clean does nothing")
     func cleanNothing() async throws {
         let model = model([])

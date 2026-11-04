@@ -80,14 +80,17 @@ nonisolated struct CleanCandidate: Identifiable, Hashable, Sendable {
     let detail: String
     /// `nil` follows the suggestion's group; `false` keeps it unticked (node_modules).
     let isTickedByDefault: Bool?
+    /// For a duplicate: the copy of its set that is kept. Clean never trashes every copy.
+    let keptCopy: URL?
 
     var id: URL { url }
 
-    init(url: URL, bytes: Int64, detail: String, isTickedByDefault: Bool? = nil) {
+    init(url: URL, bytes: Int64, detail: String, isTickedByDefault: Bool? = nil, keptCopy: URL? = nil) {
         self.url = url.canonical
         self.bytes = bytes
         self.detail = detail
         self.isTickedByDefault = isTickedByDefault
+        self.keptCopy = keptCopy?.canonical
     }
 }
 

@@ -16,7 +16,7 @@ Quoted from the reference site (fileosmac.com):
 - S6 "Everything goes to the Trash first, and Undo brings it back. Empty Trash always asks." Buttons "Look Again", "Empty Trash", "Undo"; dialog "Empty the Trash?" with "Cancel" and "Empty Trash".
 - Assumptions shared by the suggestions (not on the site):
   - User folders scanned for duplicates, big files and node_modules: Desktop, Documents, Downloads, Movies, Music, Pictures, plus ~/Developer, ~/Projects, ~/src, ~/code for node_modules. Hidden items and packages (apps, Photos libraries…) are never entered or flagged as files; iCloud files not downloaded are never read.
-  - Duplicates: regular files of 1 MB or more with identical contents (size, then hash); the most recently opened copy is kept (last opened, then modified).
+  - Duplicates: regular files of 1 MB or more with identical contents (size, then hash); the most recently opened copy is kept (last opened, then modified). Clean never trashes every copy of a set: if another suggestion would take the kept copy too, the kept copy stays (or, when a ticked folder takes it, one other copy).
   - Installers: .dmg/.pkg in Downloads and Desktop whose name, without version/platform words, matches an installed app.
   - Mail attachments: the entries of Mail's "Mail Downloads" folder (Mail keeps there the attachments you opened); skipped when unreadable.
   - Big files: regular files of 1 GB or more.
@@ -33,6 +33,7 @@ Quoted from the reference site (fileosmac.com):
 - [x] T3 S3 — duplicates scanner — delegated (writer B) — 3763f52 (RED→GREEN, 10 tests)
 - [x] T4 S3,S4 — installers, Mail attachments, old downloads, old screen recordings scanners — delegated (writer C) — 13dd876 (RED→GREEN, 9 tests)
 - [x] T5 S4 — big files, unused apps, leftovers scanners — delegated (writer D) — 8191285 (RED→GREEN, 21 tests); leftovers verifier pending
+- [x] T7 S3 — R3-003: Clean never trashes every copy of a duplicate set — inline — (this commit) (RED→GREEN, 301/301)
 - [x] T6 S1,S2,S6 — Smart Clean window: storage bar, sections, rows with why and items, Clean, Undo, Look Again, Empty Trash dialog, sidebar + menu entry — inline — 85062e1 (builds; not runtime-driven)
 
 Route evidence: T2–T5 are four independent units with disjoint files (one scanner file + one test file each), each 150+ lines with tests, launched together after T1 → Writer trigger (a) parallelism; the parent owns git and the scanner registry. T1 and T6 inline. Risk: T1 item 1 (Empty Trash deletes permanently; bulk trashing of user files) → independent verifier + native review; T5 leftovers item 1 (heuristic targets in ~/Library).
@@ -54,3 +55,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R4-001/R3-002 A partly failed Empty Trash keeps undo steps for items already deleted.
   - R1-001/R3-001 Installers match by name only (no check the file is an installer) and also against Apple apps and helpers found deep in Application Support.
   - R4-003/R3-004 A newer scan doesn't cancel the older one (duplicate hashing keeps running).
+- L11 (2026-11-04) User: "yes, fix the duplicates follow-up". T7 inline: candidates carry `keptCopy`; `itemsToClean` spares one copy of any set that would go entirely (the kept copy when it is trashed by itself, else the first copy not inside a ticked folder; a ticked folder holding every copy still goes — the user's own choice). RED observed (kept copy also listed by Installers was trashed); 3 model tests + scanner assertion; 301/301. Remaining follow-ups: R4-002, partial Empty Trash undo, installer matching, scan cancellation.

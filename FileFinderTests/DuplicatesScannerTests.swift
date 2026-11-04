@@ -52,6 +52,7 @@ struct DuplicatesScannerTests {
         #expect(found.map(\.url) == [desktop, documents])
         #expect(found.map(\.detail) == ["Copy of ~/Downloads/report.pdf", "Copy of ~/Downloads/report.pdf"])
         #expect(found.map(\.bytes) == [100, 100])
+        #expect(found.map(\.keptCopy) == [downloads.canonical, downloads.canonical])
     }
 
     @Test("With no open date known, the most recently modified copy is kept")

@@ -33,7 +33,7 @@ nonisolated struct DuplicatesScanner: SuggestionScanner {
                     let kept = Self.keptCopy(of: copies, environment: environment)
                     let detail = "Copy of \(Self.displayPath(kept, home: environment.home))"
                     for copy in copies where copy != kept {
-                        candidates.append(CleanCandidate(url: copy, bytes: size, detail: detail))
+                        candidates.append(CleanCandidate(url: copy, bytes: size, detail: detail, keptCopy: kept))
                     }
                 }
             }
