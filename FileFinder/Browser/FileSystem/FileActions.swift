@@ -525,7 +525,8 @@ final class FileActions {
                 close(folder)
                 if let first = entries.first {
                     let path = failure.code == EACCES ? itemPath() + "/" + displayName(first) : itemPath()
-                    return deletion.fail(failure.code, path: path)
+                    // It is open, so "gone" can't be taken as already deleted: report it.
+                    return deletion.fail(failure.code == ENOENT ? EIO : failure.code, path: path)
                 }
                 if unlinkat(parent, name, AT_REMOVEDIR) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: itemPath()) }
                 return

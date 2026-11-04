@@ -620,6 +620,40 @@ struct SmartCleanTests {
         #expect(!exists(".Trash/Empty"))   // nothing in it to reach: it still goes
     }
 
+    @Test("A parent check failing midway is reported as that failure, never taken as a move")
+    func parentFailureMidway() async throws {
+        for index in 0..<10 { try dir.file(".Trash/Box/f\(index)", bytes: 1) }
+        try dir.file(".Trash/other.txt", bytes: 1)
+        let boxInode = inode(of: dir.url.appending(path: ".Trash/Box"))
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, boxInode), checks.next() >= 5 { return .failure(FileActions.SystemCallError(code: EIO)) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Box” couldn’t be removed."
+        }
+
+        // Box's first 3 files went before its 5th check failed; the rest of the Trash still went.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash/Box").path).count == 7)
+        #expect(!exists(".Trash/other.txt"))
+    }
+
+    @Test("A parent check saying a full folder is gone is reported, never ignored")
+    func parentGoneReported() async throws {
+        try dir.file(".Trash/Full/a.txt", bytes: 1)
+        let fullInode = inode(of: dir.url.appending(path: ".Trash/Full"))
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            isFolder(folder, fullInode) ? .failure(FileActions.SystemCallError(code: ENOENT)) : FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Full” couldn’t be removed."
+        }
+        #expect(exists(".Trash/Full/a.txt"))
+    }
+
     @Test("A folder whose listing fails is kept with that failure")
     func listingFailureReported() async throws {
         try dir.file(".Trash/Box/a.txt", bytes: 1)
