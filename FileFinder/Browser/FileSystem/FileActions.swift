@@ -66,7 +66,7 @@ final class TransferProgress {
     }
 }
 
-/// Identity for the undo steps that bring items back out of the Trash.
+/// Identity for the undo steps that need items in the Trash, which emptying it deletes.
 private final class TrashUndoTarget {}
 
 /// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
@@ -129,8 +129,8 @@ final class FileActions {
     @ObservationIgnored var onBackgroundError: ((String) -> Void)?
     /// Tail of the serial queue of disk work.
     @ObservationIgnored private var lastWork: Task<Void, Never>?
-    /// The undo target of steps that bring items back out of the Trash, so emptying the Trash
-    /// can drop exactly those.
+    /// The undo target of steps that need items in the Trash (bringing them back out, renaming
+    /// them, trashing a copy made there), so emptying the Trash can drop exactly those.
     @ObservationIgnored private let trashUndoTarget = TrashUndoTarget()
     /// Cancel handles of queued and running operations, and which one is running.
     @ObservationIgnored private var cancellers: [UUID: () -> Void] = [:]
@@ -354,8 +354,8 @@ final class FileActions {
         }
     }
 
-    /// Drops the undo steps that would bring items back out of the Trash, once emptying it
-    /// deleted them; every other undo step (renames, moves, copies…) stays.
+    /// Drops the undo steps that need items in the Trash, once emptying it deleted them; every
+    /// other undo step (renames, moves, copies elsewhere…) stays.
     func dropTrashUndo() {
         undoManager?.removeAllActions(withTarget: trashUndoTarget)
     }
@@ -453,13 +453,12 @@ final class FileActions {
 
     /// `done` already happened; undoing it moves those items back.
     private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer]) {
-        // Undoing a trip into the Trash brings items out of it; undoing a move out of it puts
-        // them back, and then its redo is the step that brings them out.
-        let restoresFromTrash: Bool? =
-            if done.contains(where: { self.isInTrash($0.to) }) { true }
-            else if done.contains(where: { self.isInTrash($0.from) }) { false }
-            else { nil }
-        registerRelocationUndo(actionName, RelocationRecord(transfers: done), restoresFromTrash: restoresFromTrash)
+        // Undo moves items from where they went, redo from where they were: each needs the
+        // Trash when those places are in it (a trip into the Trash, a move out, a rename in it).
+        let needsTrash = (
+            undo: done.contains { self.isInTrash($0.to) },
+            redo: done.contains { self.isInTrash($0.from) })
+        registerRelocationUndo(actionName, RelocationRecord(transfers: done), needsTrash: needsTrash)
     }
 
     /// Whether `url` is inside `trashFolder`, the Trash that Empty Trash empties; another
@@ -469,14 +468,16 @@ final class FileActions {
     }
 
     /// Undo and redo hand each other a record of what their disk work really moved, so a step
-    /// that stopped partway is reversed only as far as it got. `restoresFromTrash` is `nil` for
-    /// steps unrelated to the Trash; for Trash moves it says whether this entry brings items
-    /// back out of it (then emptying the Trash breaks it, see `dropTrashUndo`) or puts them in.
-    private func registerRelocationUndo(_ actionName: String, _ record: RelocationRecord, restoresFromTrash: Bool?) {
-        registerUndo(actionName, target: restoresFromTrash == true ? trashUndoTarget : self) { actions in
+    /// that stopped partway is reversed only as far as it got. `needsTrash.undo` says whether
+    /// this entry moves items out of the Trash (emptying it breaks the entry, see
+    /// `dropTrashUndo`); `needsTrash.redo`, the same for the entry it registers in turn.
+    private func registerRelocationUndo(
+        _ actionName: String, _ record: RelocationRecord, needsTrash: (undo: Bool, redo: Bool)
+    ) {
+        registerUndo(actionName, target: needsTrash.undo ? trashUndoTarget : self) { actions in
             let trasher = actions.trasher
             let reverse = RelocationRecord(transfers: [])
-            actions.registerRelocationUndo(actionName, reverse, restoresFromTrash: restoresFromTrash.map { !$0 })
+            actions.registerRelocationUndo(actionName, reverse, needsTrash: (undo: needsTrash.redo, redo: needsTrash.undo))
             actions.enqueue {
                 // Read the record when the work runs: the step before it has finished by then.
                 let plan = record.transfers.reversed().map(\.reversed)
@@ -489,7 +490,9 @@ final class FileActions {
 
     /// Undoing a copy trashes the copies that are still the files it created.
     private func registerCopyUndo(_ record: CopyRecord) {
-        registerUndo("Copy") { actions in
+        // Copies made in the Trash are gone once it is emptied.
+        let intoTrash = record.transfers.contains { self.isInTrash($0.to) }
+        registerUndo("Copy", target: intoTrash ? trashUndoTarget : self) { actions in
             actions.registerRecopyUndo(record)
             let trasher = actions.trasher
             actions.enqueue {
@@ -520,7 +523,7 @@ final class FileActions {
     /// `reuseExisting`, redo accepts a folder that is still there (Tidy: undo left it because
     /// something else was put in it) instead of reporting it.
     private func registerNewFolderUndo(_ url: URL, actionName: String = "New Folder", reuseExisting: Bool = false) {
-        registerUndo(actionName) { actions in
+        registerUndo(actionName, target: isInTrash(url) ? trashUndoTarget : self) { actions in
             actions.registerRecreateFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
             let trasher = actions.trasher
             actions.enqueue { await Self.performTrashIfEmpty(url, trasher: trasher) }

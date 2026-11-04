@@ -385,6 +385,33 @@ struct SmartCleanTests {
         #expect(!undoManager.canRedo)
     }
 
+    @Test("A rename inside the Trash, undone, loses its Redo once the Trash is emptied")
+    func renameInsideTrashDropped() async throws {
+        let old = try dir.file(".Trash/old.txt", bytes: 1)
+        try await actions.rename(old, to: "new.txt")
+        undoManager.undo()                      // old.txt again, Redo "Rename" waits
+        await actions.waitForPendingWork()
+        #expect(undoManager.canRedo)
+
+        actions.dropTrashUndo()
+
+        #expect(!undoManager.canRedo && !undoManager.canUndo)
+    }
+
+    @Test("A copy or a new folder made in the Trash loses its Undo once the Trash is emptied")
+    func madeInTrashDropped() async throws {
+        let file = try dir.file("a.txt", bytes: 1)
+        _ = try await actions.copy([file], into: dir.url.appending(path: ".Trash"))
+        #expect(undoManager.undoActionName == "Copy")
+        actions.dropTrashUndo()
+        #expect(!undoManager.canUndo)
+
+        _ = try await actions.createFolder(in: dir.url.appending(path: ".Trash"))
+        #expect(undoManager.undoActionName == "New Folder")
+        actions.dropTrashUndo()
+        #expect(!undoManager.canUndo)
+    }
+
     @Test("Moves into another volume's Trash (.Trashes) keep their Undo: Empty Trash doesn't empty it")
     func otherVolumeTrashKeepsUndo() async throws {
         let file = try dir.file("a.txt", bytes: 1)
