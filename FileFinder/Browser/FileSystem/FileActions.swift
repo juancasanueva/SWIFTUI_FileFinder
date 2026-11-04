@@ -151,15 +151,32 @@ final class FileActions {
     /// Bytes per item, measured before a copy for the progress bar.
     typealias SizeMeasurer = @Sendable ([URL]) async -> [Int64]
     @ObservationIgnored private let measureSizes: SizeMeasurer
+    /// Moves one item to the Trash and returns where it went (`nil` when unknown).
+    typealias Trasher = @Sendable (URL) throws -> URL?
+    @ObservationIgnored private let trasher: Trasher
+    /// The Trash that `trasher` fills and Empty Trash empties. Only paths inside it count as
+    /// the Trash; other folders named ".Trash" and other volumes' ".Trashes" don't.
+    let trashFolder: URL
 
     init(
         clipboard: FileClipboard = .shared,
         copier: @escaping Copier = { try FileCopier.copy(from: $0, to: $1, progress: $2, shouldCancel: $3) },
-        measureSizes: @escaping SizeMeasurer = { await FileActions.sizes(of: $0) }
+        measureSizes: @escaping SizeMeasurer = { await FileActions.sizes(of: $0) },
+        trashFolder: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".Trash"),
+        trasher: @escaping Trasher = FileActions.systemTrasher
     ) {
         self.clipboard = clipboard
         self.copier = copier
         self.measureSizes = measureSizes
+        self.trashFolder = trashFolder.canonical
+        self.trasher = trasher
+    }
+
+    /// The system's Move to Trash.
+    nonisolated static let systemTrasher: Trasher = { url in
+        var resulting: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+        return resulting as URL?
     }
 
     /// Stops the running operation. Items it already finished stay (and can be undone);
@@ -189,7 +206,7 @@ final class FileActions {
             if !isCaseOnlyChange, FileManager.default.fileExists(atPath: destination.path) {
                 throw FileActionError.nameTaken(name)
             }
-            let result = await Self.performMoves([FileTransfer(from: url, to: destination)])
+            let result = await Self.performMoves([FileTransfer(from: url, to: destination)], trasher: self.trasher)
             if let error = result.error { throw error }
             self.registerRelocationUndo("Rename", result.done)
             return destination
@@ -220,7 +237,7 @@ final class FileActions {
                 progress.totalBytes = sizes.reduce(0, +)
                 progress.isMeasuring = false
                 result = await Self.performCopies(
-                    plan.transfers, replacing: plan.replacing, copier: self.copier, sizes: sizes
+                    plan.transfers, replacing: plan.replacing, copier: self.copier, trasher: self.trasher, sizes: sizes
                 ) { bytes in
                     Task { @MainActor in progress.completedBytes = bytes }
                 }
@@ -246,7 +263,7 @@ final class FileActions {
         return try await serialized {
             let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
             let plan = try await Self.resolvedPlan(sources, into: folder, copying: false, resolver: resolveConflicts)
-            let result = await Self.performMoves(plan.transfers, replacing: plan.replacing)
+            let result = await Self.performMoves(plan.transfers, replacing: plan.replacing, trasher: self.trasher)
             self.registerAsOneStep(if: !result.done.isEmpty || !result.trashed.isEmpty) {
                 if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
                 if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
@@ -314,7 +331,7 @@ final class FileActions {
                 }
                 transfers += try await Self.resolvedPlan(sources, into: group.folder, copying: false, resolver: nil).transfers
             }
-            let result = await Self.performMoves(transfers)
+            let result = await Self.performMoves(transfers, trasher: self.trasher)
             // Folders first, so undo (which runs in reverse) moves the files out before checking
             // whether the folders are empty.
             self.registerAsOneStep(if: !created.isEmpty || !result.done.isEmpty) {
@@ -331,7 +348,7 @@ final class FileActions {
     /// Moves items to the Trash as one undo step named `actionName`.
     func trash(_ urls: [URL], actionName: String = "Move to Trash") async throws {
         try await serialized {
-            let result = await Self.performTrash(urls)
+            let result = await Self.performTrash(urls, trasher: self.trasher)
             if !result.done.isEmpty { self.registerRelocationUndo(actionName, result.done) }
             if let error = result.error { throw error }
         }
@@ -344,11 +361,11 @@ final class FileActions {
     }
 
     /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
-    /// Refuses anything that isn't a real folder named ".Trash": a link named ".Trash" would
-    /// otherwise empty the folder it points to. Once anything was deleted, even when emptying
+    /// Refuses anything but `trashFolder`, and it only when it is a real folder: a link named
+    /// ".Trash" would otherwise empty the folder it points to. Once anything was deleted, even when emptying
     /// then failed, the undo steps that would restore items from the Trash are dropped.
     func emptyTrash(_ trash: URL) async throws {
-        guard trash.lastPathComponent == ".Trash" else { throw FileActionError.notTheTrash }
+        guard trash.canonical == trashFolder else { throw FileActionError.notTheTrash }
         // Checked inside the queued work, right before deleting: the Trash may change while
         // earlier operations run.
         try await serialized {
@@ -439,16 +456,16 @@ final class FileActions {
         // Undoing a trip into the Trash brings items out of it; undoing a move out of it puts
         // them back, and then its redo is the step that brings them out.
         let restoresFromTrash: Bool? =
-            if done.contains(where: { Self.isInTrash($0.to) }) { true }
-            else if done.contains(where: { Self.isInTrash($0.from) }) { false }
+            if done.contains(where: { self.isInTrash($0.to) }) { true }
+            else if done.contains(where: { self.isInTrash($0.from) }) { false }
             else { nil }
         registerRelocationUndo(actionName, RelocationRecord(transfers: done), restoresFromTrash: restoresFromTrash)
     }
 
-    /// Whether `url` is inside the Trash that Empty Trash empties (`~/.Trash`, or a test
-    /// home's); other volumes' `.Trashes` aren't emptied, so their steps keep working.
-    private nonisolated static func isInTrash(_ url: URL) -> Bool {
-        url.pathComponents.contains(".Trash")
+    /// Whether `url` is inside `trashFolder`, the Trash that Empty Trash empties; another
+    /// folder named ".Trash" or another volume's `.Trashes` isn't emptied, so its steps keep working.
+    private func isInTrash(_ url: URL) -> Bool {
+        url.canonical.path.hasPrefix(trashFolder.path + "/")
     }
 
     /// Undo and redo hand each other a record of what their disk work really moved, so a step
@@ -457,12 +474,13 @@ final class FileActions {
     /// back out of it (then emptying the Trash breaks it, see `dropTrashUndo`) or puts them in.
     private func registerRelocationUndo(_ actionName: String, _ record: RelocationRecord, restoresFromTrash: Bool?) {
         registerUndo(actionName, target: restoresFromTrash == true ? trashUndoTarget : self) { actions in
+            let trasher = actions.trasher
             let reverse = RelocationRecord(transfers: [])
             actions.registerRelocationUndo(actionName, reverse, restoresFromTrash: restoresFromTrash.map { !$0 })
             actions.enqueue {
                 // Read the record when the work runs: the step before it has finished by then.
                 let plan = record.transfers.reversed().map(\.reversed)
-                let result = await Self.performMoves(plan, stopOnError: false)
+                let result = await Self.performMoves(plan, stopOnError: false, trasher: trasher)
                 reverse.transfers = result.done
                 return result
             }
@@ -473,9 +491,10 @@ final class FileActions {
     private func registerCopyUndo(_ record: CopyRecord) {
         registerUndo("Copy") { actions in
             actions.registerRecopyUndo(record)
+            let trasher = actions.trasher
             actions.enqueue {
                 // Read the record when the work runs: a queued redo may have just updated it.
-                let result = await Self.performTrashCopies(record.transfers, fileNumbers: record.fileNumbers)
+                let result = await Self.performTrashCopies(record.transfers, fileNumbers: record.fileNumbers, trasher: trasher)
                 record.fileNumbers = [:]
                 return result
             }
@@ -485,12 +504,12 @@ final class FileActions {
     /// Redoing a copy copies the same sources to the same names, skipping names now taken.
     private func registerRecopyUndo(_ record: CopyRecord) {
         // Redoing copies the sources again: impossible once they are emptied from the Trash.
-        let fromTrash = record.transfers.contains { Self.isInTrash($0.from) }
+        let fromTrash = record.transfers.contains { self.isInTrash($0.from) }
         registerUndo("Copy", target: fromTrash ? trashUndoTarget : self) { actions in
             actions.registerCopyUndo(record)
-            let copier = actions.copier
+            let copier = actions.copier, trasher = actions.trasher
             actions.enqueue {
-                let result = await Self.performCopies(record.transfers, copier: copier)
+                let result = await Self.performCopies(record.transfers, copier: copier, trasher: trasher)
                 record.fileNumbers = result.fileNumbers
                 return result
             }
@@ -503,7 +522,8 @@ final class FileActions {
     private func registerNewFolderUndo(_ url: URL, actionName: String = "New Folder", reuseExisting: Bool = false) {
         registerUndo(actionName) { actions in
             actions.registerRecreateFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
-            actions.enqueue { await Self.performTrashIfEmpty(url) }
+            let trasher = actions.trasher
+            actions.enqueue { await Self.performTrashIfEmpty(url, trasher: trasher) }
         }
     }
 
@@ -585,7 +605,7 @@ final class FileActions {
 
     /// `sizes` (bytes per item, same order as `plan`) and `report` drive the progress bar.
     @concurrent private nonisolated static func performCopies(
-        _ plan: [FileTransfer], replacing: [URL?] = [], copier: Copier, sizes: [Int64] = [],
+        _ plan: [FileTransfer], replacing: [URL?] = [], copier: Copier, trasher: Trasher, sizes: [Int64] = [],
         report: (@Sendable (Int64) -> Void)? = nil
     ) async -> BatchResult {
         let fileManager = FileManager.default
@@ -601,7 +621,7 @@ final class FileActions {
             var trashed: FileTransfer?
             if let existing {
                 do {
-                    trashed = try trashItem(existing)
+                    trashed = try trashItem(existing, trasher: trasher)
                 } catch {
                     result.error = error
                     break
@@ -669,7 +689,7 @@ final class FileActions {
 
     /// Trashes copies, skipping any that were replaced by a different file since they were made.
     @concurrent private nonisolated static func performTrashCopies(
-        _ copies: [FileTransfer], fileNumbers: [String: Int]
+        _ copies: [FileTransfer], fileNumbers: [String: Int], trasher: Trasher
     ) async -> BatchResult {
         var result = BatchResult()
         for copy in copies {
@@ -681,7 +701,7 @@ final class FileActions {
                 continue
             }
             do {
-                try FileManager.default.trashItem(at: copy.to, resultingItemURL: nil)
+                _ = try trasher(copy.to)
                 result.done.append(copy)
             } catch {
                 result.error = error
@@ -692,7 +712,7 @@ final class FileActions {
 
     /// Undo/redo passes `stopOnError: false` to put back as much as possible.
     @concurrent private nonisolated static func performMoves(
-        _ plan: [FileTransfer], replacing: [URL?] = [], stopOnError: Bool = true
+        _ plan: [FileTransfer], replacing: [URL?] = [], stopOnError: Bool = true, trasher: Trasher
     ) async -> BatchResult {
         let fileManager = FileManager.default
         var result = BatchResult()
@@ -700,7 +720,7 @@ final class FileActions {
             let existing = index < replacing.count ? replacing[index] : nil
             var trashed: FileTransfer?
             do {
-                if let existing { trashed = try trashItem(existing) }
+                if let existing { trashed = try trashItem(existing, trasher: trasher) }
                 try fileManager.moveItem(at: transfer.from, to: transfer.to)
                 result.done.append(transfer)
                 if let trashed { result.trashed.append(trashed) }
@@ -719,10 +739,8 @@ final class FileActions {
 
     /// Moves one item to the Trash and returns where it went. Throws if the Trash doesn't say
     /// where, since the item could then never be put back.
-    private nonisolated static func trashItem(_ url: URL) throws -> FileTransfer {
-        var resulting: NSURL?
-        try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-        guard let trashed = resulting as URL? else {
+    private nonisolated static func trashItem(_ url: URL, trasher: Trasher) throws -> FileTransfer {
+        guard let trashed = try trasher(url) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [
                 NSFilePathErrorKey: url.path,
                 NSLocalizedDescriptionKey: "“\(url.lastPathComponent)” went to the Trash, but its new location is unknown, so nothing else was done.",
@@ -731,13 +749,11 @@ final class FileActions {
         return FileTransfer(from: url, to: trashed)
     }
 
-    @concurrent private nonisolated static func performTrash(_ urls: [URL]) async -> BatchResult {
+    @concurrent private nonisolated static func performTrash(_ urls: [URL], trasher: Trasher) async -> BatchResult {
         var result = BatchResult()
         for url in urls {
             do {
-                var resulting: NSURL?
-                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-                if let trashed = resulting as URL? { result.done.append(FileTransfer(from: url, to: trashed)) }
+                if let trashed = try trasher(url) { result.done.append(FileTransfer(from: url, to: trashed)) }
             } catch {
                 result.error = error
                 break
@@ -750,14 +766,14 @@ final class FileActions {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
     }
 
-    @concurrent private nonisolated static func performTrashIfEmpty(_ url: URL) async -> BatchResult {
+    @concurrent private nonisolated static func performTrashIfEmpty(_ url: URL, trasher: Trasher) async -> BatchResult {
         let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
         // Finder drops a .DS_Store into folders it shows; that alone doesn't count as content.
         guard contents.allSatisfy({ $0 == ".DS_Store" }) else {
             return BatchResult(error: FolderNotEmptyError(name: url.lastPathComponent))
         }
         do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            _ = try trasher(url)
             return BatchResult()
         } catch {
             return BatchResult(error: error)

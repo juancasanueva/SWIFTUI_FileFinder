@@ -23,7 +23,8 @@ struct SmartCleanTests {
         try dir.folder(".Trash")
         undoManager = UndoManager()
         undoManager.groupsByEvent = false
-        actions = FileActions(
+        actions = FileActions.withTestTrash(
+            dir.url.appending(path: ".Trash"),
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
     }
@@ -323,10 +324,13 @@ struct SmartCleanTests {
         #expect(!undoManager.canUndo)
     }
 
-    /// A real "Move to Trash" undo step (the tiny file goes to the real Trash).
-    private func registerTrashUndoStep() async throws {
-        try await actions.trash([try dir.file("step-\(UUID()).bin", bytes: 1)])
+    /// A real "Move to Trash" undo step (into the test Trash); returns the trashed file.
+    @discardableResult
+    private func registerTrashUndoStep() async throws -> URL {
+        let name = "step-\(UUID()).bin"
+        try await actions.trash([try dir.file(name, bytes: 1)])
         #expect(undoManager.canUndo)
+        return dir.url.appending(path: ".Trash/\(name)")
     }
 
     @Test("A Trash move undone then redone is still dropped by emptying; an undone one keeps its Redo")
@@ -390,6 +394,29 @@ struct SmartCleanTests {
         actions.dropTrashUndo()
 
         #expect(undoManager.undoActionName == "Move")
+    }
+
+    @Test("Move to Trash fills the FileActions' own Trash: tests never touch the real one")
+    func trashesIntoOwnTrash() async throws {
+        let file = try dir.file("cache.bin", bytes: 1)
+        try await actions.trash([file])
+        #expect(exists(".Trash/cache.bin") && !exists("cache.bin"))
+        undoManager.undo()
+        await actions.waitForPendingWork()
+        #expect(exists("cache.bin") && !exists(".Trash/cache.bin"))
+    }
+
+    @Test("Another folder named .Trash isn't the Trash: moves into it keep their Undo, and it is never emptied")
+    func otherTrashNamedFolder() async throws {
+        let file = try dir.file("a.txt", bytes: 1)
+        let lookalike = try dir.folder("Documents/.Trash")
+        _ = try await actions.move([file], into: lookalike)
+
+        actions.dropTrashUndo()
+
+        #expect(undoManager.undoActionName == "Move")
+        await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(lookalike) }
+        #expect(exists("Documents/.Trash/a.txt"))
     }
 
     @Test("Emptying the Trash drops only the undo steps into the Trash; a rename keeps its Undo")
@@ -459,7 +486,9 @@ struct SmartCleanTests {
     func failedEmptyKeepsUndo() async throws {
         let locked = try lockedTrashFile("locked.txt")
         defer { unlock(locked) }
-        try await registerTrashUndoStep()
+        let step = try await registerTrashUndoStep()
+        #expect(chflags(step.path, UInt32(UF_IMMUTABLE)) == 0)   // nothing in the Trash can go
+        defer { unlock(step) }
         let model = model([])
 
         model.requestEmptyTrash()
@@ -749,5 +778,16 @@ struct SlowScanner: SuggestionScanner {
     func scan(_ environment: CleanEnvironment) async throws -> [CleanCandidate] {
         await gate.wait()
         return candidates()
+    }
+}
+
+extension FileActions {
+    /// FileActions whose Move to Trash fills `trash` (a test home's), never the real Trash.
+    static func withTestTrash(_ trash: URL, clipboard: FileClipboard) -> FileActions {
+        FileActions(clipboard: clipboard, trashFolder: trash, trasher: { url in
+            let destination = FileActions.uniqueDestination(for: url, in: trash, copyStyle: false)
+            try FileManager.default.moveItem(at: url, to: destination)
+            return destination
+        })
     }
 }
