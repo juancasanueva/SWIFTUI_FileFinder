@@ -205,11 +205,22 @@ nonisolated enum CleanWalker {
             while let url = enumerator?.nextObject() as? URL {
                 try Task.checkCancellation()
                 guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
-                if let status = values.ubiquitousItemDownloadingStatus, status != .current { continue }
+                if !isDownloaded(values) { continue }
                 let size = Int64(values.fileSize ?? 0)
                 if size >= minimumSize { try visit(url.canonical, size) }
             }
         }
+    }
+
+    /// Whether a file's contents are on the Mac: not an iCloud file that is only in iCloud
+    /// (reading it would download it).
+    static func isDownloaded(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])).map(isDownloaded) ?? true
+    }
+
+    private static func isDownloaded(_ values: URLResourceValues) -> Bool {
+        guard let status = values.ubiquitousItemDownloadingStatus else { return true }
+        return status == .current
     }
 
     /// Folders named `name` below `roots`, at most `maxDepth` levels down (a root's children are

@@ -102,6 +102,18 @@ struct DownloadsScannersTests {
         #expect(paths(found) == ["Desktop/Slack-2.dmg", "Desktop/Zoom-2.pkg"])
     }
 
+    @Test("An installer only in iCloud (not downloaded) is never read or listed, so it isn't downloaded")
+    func installersSkipICloudOnlyFiles() async throws {
+        try installer("Desktop/Slack.dmg")
+        try installer("Downloads/Zoom.dmg")
+        let environment = CleanEnvironment.testing(home: dir.url, installedApps: [app("Slack"), app("Zoom")])
+        let scanner = InstallersScanner(isDownloaded: { $0.lastPathComponent != "Slack.dmg" })
+
+        let found = try await scanner.scan(environment)
+
+        #expect(paths(found) == ["Downloads/Zoom.dmg"])
+    }
+
     @Test("Only apps you installed count: not Apple's, not helpers outside the Applications folders")
     func installersOnlyForYourApps() async throws {
         try installer("Downloads/Notes.dmg")

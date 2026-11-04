@@ -39,6 +39,7 @@ Quoted from the reference site (fileosmac.com):
 - [x] T10 S6 — a partly failed Empty Trash drops the undo steps; they stay only when nothing was deleted — inline — (this commit) (RED→GREEN, 307 ×2)
 - [x] T11 S3 — installers: real installer formats only, only for your own apps (not Apple's or helpers) — inline — (this commit) (RED→GREEN, 309 ×2)
 - [x] T12 S2,S6 — Look Again cancels the older scan; cancelling the caller (window closed) still cancels the scan — inline — (this commit) (RED→GREEN, 311 ×2); Risk item 4 → verifier
+- [x] T13 S3 — the installer format check never reads an iCloud-only file — inline — (this commit) (RED→GREEN, 312 ×2)
 - [x] T6 S1,S2,S6 — Smart Clean window: storage bar, sections, rows with why and items, Clean, Undo, Look Again, Empty Trash dialog, sidebar + menu entry — inline — 85062e1 (builds; not runtime-driven)
 
 Route evidence: T2–T5 are four independent units with disjoint files (one scanner file + one test file each), each 150+ lines with tests, launched together after T1 → Writer trigger (a) parallelism; the parent owns git and the scanner registry. T1 and T6 inline. Risk: T1 item 1 (Empty Trash deletes permanently; bulk trashing of user files) → independent verifier + native review; T5 leftovers item 1 (heuristic targets in ~/Library).
@@ -76,3 +77,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R4-002/R3-001 The top-level count misses partial deletion inside a trashed folder (a folder with one locked file stays, its other contents are gone, Undo is kept) and items added meanwhile.
   - R4-001 The installer format check reads evicted iCloud files (Desktop with Optimize Mac Storage), which downloads them; should skip non-downloaded files like CleanWalker does.
   - R3-002 partlyFailedEmptyDropsUndo relies on emptying continuing past the first error (it does) and only #expects chflags success.
+- L21 (2026-11-04) User: "yes, fix the iCloud download". T13 inline (L20 R4-001): CleanWalker.isDownloaded(_:) (download status .current, or not an iCloud file) is shared by the walker and InstallersScanner, which checks it before reading a file's header or trailer; the scanner takes it as an injectable parameter so a test can fake an iCloud-only file. RED observed (compile: no such parameter). 312/312 twice. A real evicted iCloud file couldn't be made in tests.

@@ -33,7 +33,13 @@ nonisolated struct InstallersScanner: SuggestionScanner {
         "installer", "setup", "release", "stable", "latest",
     ]
 
-    init() {}
+    /// Whether a file's contents are on the Mac; an iCloud file that isn't is never read,
+    /// since reading it would download it.
+    private let isDownloaded: @Sendable (URL) -> Bool
+
+    init(isDownloaded: @escaping @Sendable (URL) -> Bool = CleanWalker.isDownloaded) {
+        self.isDownloaded = isDownloaded
+    }
 
     func scan(_ environment: CleanEnvironment) async throws -> [CleanCandidate] {
         var appsByName: [String: InstalledApp] = [:]
@@ -46,7 +52,8 @@ nonisolated struct InstallersScanner: SuggestionScanner {
             for url in DirectChildren.of(folder) where Self.extensions.contains(url.pathExtension.lowercased()) {
                 try Task.checkCancellation()
                 let name = Self.normalized(url.deletingPathExtension().lastPathComponent)
-                guard name.count >= 3, let app = appsByName[name], Self.isInstaller(url) else { continue }
+                guard name.count >= 3, let app = appsByName[name],
+                      isDownloaded(url), Self.isInstaller(url) else { continue }
                 found.append(CleanCandidate(
                     url: url, bytes: CleanWalker.size(of: url), detail: "“\(app.name)” is installed"))
             }
