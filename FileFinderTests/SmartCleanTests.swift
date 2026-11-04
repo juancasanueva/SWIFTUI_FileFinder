@@ -269,6 +269,28 @@ struct SmartCleanTests {
         #expect(exists("Documents/precious.txt"))
     }
 
+    @Test("A Trash swapped for a link halfway through emptying stops before touching the link's folder")
+    func trashSwappedDuringDeletion() async throws {
+        let count = 3000
+        for index in 0..<count {
+            try dir.file(".Trash/n\(index)", bytes: 1)
+            try dir.file("Documents/n\(index)", bytes: 1)
+        }
+        let root = dir.url
+        let trash = root.appending(path: ".Trash")
+        let swapper = Thread {
+            while ((try? FileManager.default.contentsOfDirectory(atPath: trash.path).count) ?? count) > count - 50 {}
+            try? FileManager.default.moveItem(at: trash, to: root.appending(path: ".Trash-real"))
+            try? FileManager.default.createSymbolicLink(at: trash, withDestinationURL: root.appending(path: "Documents"))
+        }
+        swapper.start()
+
+        await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(trash) }
+        while swapper.isExecuting { try await Task.sleep(for: .milliseconds(5)) }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "Documents").path).count == count)
+    }
+
     @Test("The dialog closing before its button runs still empties the Trash")
     func dialogDismissedFirst() async throws {
         try dir.file(".Trash/old.txt")
