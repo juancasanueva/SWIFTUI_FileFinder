@@ -49,7 +49,7 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T17 S2,S6 — L19 A1/A2: closing the window cancels a scan started by Look Again or Clean; storage is never reset by an older scan — inline — (this commit) (RED→GREEN for A1, 319; A2 has no deterministic RED: a child task starting late)
 - [x] T18 S6 — L26 R3-001/R3-004: FileActions owns one Trash folder (injectable, real ~/.Trash by default); only paths inside it count as the Trash, Empty Trash empties only it, and tests trash into their own Trash — inline — (this commit) (RED by mutation: the old name rule fails the lookalike test with 3 issues; GREEN 321 ×2; one TransferProgress cancel flake seen once, not reproduced); Risk item 3 (shared FileActions trash plumbing) → verifier
 - [x] T19 S6 — L26 R3-002: undo steps that act inside the Trash (a rename in it, a copy or New Folder into it) are dropped when it is emptied — inline — (this commit) (RED→GREEN: 3 issues, then 323)
-- [ ] T20 S6 — L14 R1-001, L29 R4-001/R3-001/R3-002/R3-003: Empty Trash deletes relative to the opened Trash folder (no link followed at any depth), knows exactly whether anything was deleted, drops Undo after emptying an already-empty Trash; committed tests for every outcome — inline
+- [x] T20 S6 — L14 R1-001, L29 R4-001/R3-001/R3-002/R3-003: Empty Trash deletes relative to the opened Trash folder (no link followed at any depth), knows exactly whether anything was deleted, drops Undo after emptying an already-empty Trash; committed tests for every outcome — inline — (this commit) (RED→GREEN: 3 issues, then 326 ×3; mid-way refusal and link-inside tests pass at the base too: pins); Risk item 1 (permanent deletion) → verifier
 
 ## Log
 

@@ -362,15 +362,17 @@ final class FileActions {
 
     /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
     /// Refuses anything but `trashFolder`, and it only when it is a real folder: a link named
-    /// ".Trash" would otherwise empty the folder it points to. Once anything was deleted, even when emptying
-    /// then failed, the undo steps that would restore items from the Trash are dropped.
+    /// ".Trash" would otherwise empty the folder it points to. Afterwards the undo steps that
+    /// need items in the Trash are dropped, unless emptying stopped before deleting anything
+    /// (then those items are all still there).
     func emptyTrash(_ trash: URL) async throws {
         guard trash.canonical == trashFolder else { throw FileActionError.notTheTrash }
         // Checked inside the queued work, right before deleting: the Trash may change while
         // earlier operations run.
         try await serialized {
             let result = await Self.performEmptyTrash(trash)
-            if result.deletedSomething { self.dropTrashUndo() }
+            // A Trash already empty (emptied in Finder) also leaves those steps nothing to restore.
+            if result.deletedSomething || result.error == nil { self.dropTrashUndo() }
             if let error = result.error { throw error }
         }
     }
@@ -383,37 +385,104 @@ final class FileActions {
         return (info.st_dev, info.st_ino)
     }
 
-    /// Whether anything was deleted, without walking the Trash: a top-level item removed, or
-    /// a folder whose removal failed (it deletes its contents one by one and stops at the
-    /// first it can't, so part of it may be gone).
+    /// What emptying did so far: whether anything at all was deleted, and the first failure.
+    private struct Deletion {
+        var deletedSomething = false
+        var error: (any Error)?
+
+        mutating func fail(_ code: Int32, path: String) {
+            guard code != ENOENT else { return }   // already gone
+            error = error ?? FileActions.removalError(code, path: path)
+        }
+    }
+
+    /// Deletes the Trash's contents relative to the folder opened once (never through a link):
+    /// a link swapped in for the Trash, or for a folder inside it, is never followed. Goes on
+    /// past items it can't delete, and stops when the Trash's path no longer leads to it.
     @concurrent private nonisolated static func performEmptyTrash(
         _ trash: URL
     ) async -> (deletedSomething: Bool, error: (any Error)?) {
         guard let identity = realFolderIdentity(trash) else { return (false, FileActionError.notTheTrash) }
-        let fileManager = FileManager.default
-        let names: [String]
-        do {
-            names = try fileManager.contentsOfDirectory(atPath: trash.path)
-        } catch {
-            return (false, error)
+        let folder = open(trash.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard folder >= 0 else {
+            let code = errno
+            return (false, code == ELOOP || code == ENOTDIR ? FileActionError.notTheTrash : removalError(code, path: trash.path))
         }
-        var deletedSomething = false
-        var firstError: (any Error)?
+        defer { close(folder) }
+        var opened = stat()
+        guard fstat(folder, &opened) == 0, (opened.st_dev, opened.st_ino) == identity else {
+            return (false, FileActionError.notTheTrash)
+        }
+        guard let names = entryNames(of: folder) else { return (false, removalError(errno, path: trash.path)) }
+        var deletion = Deletion()
         for name in names {
-            // Still the same real folder before every deletion, never a link swapped in.
+            // Still the same real folder at the Trash's path, never a link swapped in.
             guard let current = realFolderIdentity(trash), current == identity else {
-                return (deletedSomething, FileActionError.notTheTrash)
+                return (deletion.deletedSomething, FileActionError.notTheTrash)
             }
-            let item = trash.appending(path: name)
-            do {
-                try fileManager.removeItem(at: item)
-                deletedSomething = true
-            } catch {
-                if realFolderIdentity(item) != nil { deletedSomething = true }
-                firstError = firstError ?? error
-            }
+            remove(name, in: folder, path: trash.path + "/" + displayName(name), &deletion)
         }
-        return (deletedSomething, firstError)
+        return (deletion.deletedSomething, deletion.error)
+    }
+
+    /// Deletes the entry `name` of the open folder `parent`; a folder's contents first, through
+    /// its own descriptor. Links are deleted, never followed.
+    private nonisolated static func remove(_ name: [CChar], in parent: Int32, path: String, _ deletion: inout Deletion) {
+        var info = stat()
+        guard fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return deletion.fail(errno, path: path) }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            if unlinkat(parent, name, 0) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: path) }
+            return
+        }
+        let folder = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard folder >= 0 else { return deletion.fail(errno, path: path) }
+        if let names = entryNames(of: folder) {
+            for child in names { remove(child, in: folder, path: path + "/" + displayName(child), &deletion) }
+        } else {
+            deletion.fail(errno, path: path)
+        }
+        close(folder)
+        if unlinkat(parent, name, AT_REMOVEDIR) == 0 {
+            deletion.deletedSomething = true
+        } else {
+            let code = errno
+            // Not empty because something inside couldn't go: that failure is already recorded.
+            if code != ENOTEMPTY || deletion.error == nil { deletion.fail(code, path: path) }
+        }
+    }
+
+    /// The raw names in an open folder (raw, so a name that isn't valid UTF-8 still matches).
+    private nonisolated static func entryNames(of folder: Int32) -> [[CChar]]? {
+        let copy = dup(folder)
+        guard copy >= 0 else { return nil }
+        guard let directory = fdopendir(copy) else {
+            close(copy)
+            return nil
+        }
+        defer { closedir(directory) }
+        var names: [[CChar]] = []
+        while let entry = readdir(directory) {
+            let length = Int(entry.pointee.d_namlen)
+            var name = withUnsafeBytes(of: entry.pointee.d_name) { Array($0.bindMemory(to: CChar.self).prefix(length)) }
+            if name == [46] || name == [46, 46] { continue }   // "." and ".."
+            name.append(0)
+            names.append(name)
+        }
+        return names
+    }
+
+    private nonisolated static func displayName(_ name: [CChar]) -> String {
+        String(decoding: name.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// Like `FileManager.removeItem`'s errors: "“name” couldn't be removed because…".
+    private nonisolated static func removalError(_ code: Int32, path: String) -> any Error {
+        let kind: CocoaError.Code = code == EPERM || code == EACCES ? .fileWriteNoPermission : .fileWriteUnknown
+        return CocoaError(kind, userInfo: [
+            NSFilePathErrorKey: path,
+            "NSUserStringVariant": ["Remove"],
+            NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) as NSError,
+        ])
     }
 
     // MARK: - Clipboard

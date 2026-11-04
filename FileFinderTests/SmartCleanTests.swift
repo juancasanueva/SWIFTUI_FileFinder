@@ -289,12 +289,29 @@ struct SmartCleanTests {
             try? FileManager.default.moveItem(at: trash, to: root.appending(path: ".Trash-real"))
             try? FileManager.default.createSymbolicLink(at: trash, withDestinationURL: root.appending(path: "Documents"))
         }
+        try await registerTrashUndoStep()
         swapper.start()
 
         await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(trash) }
         while swapper.isExecuting { try await Task.sleep(for: .milliseconds(5)) }
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "Documents").path).count == count)
+        #expect(!undoManager.canUndo)   // stopped after deleting some: they are gone for good
+    }
+
+    @Test("A link inside the Trash is deleted, never followed: the folder it points to stays")
+    func linkInsideTrashNotFollowed() async throws {
+        try dir.file("Documents/precious.txt", bytes: 5)
+        try dir.folder(".Trash/Box")
+        try FileManager.default.createSymbolicLink(
+            at: dir.url.appending(path: ".Trash/Box/docs"), withDestinationURL: dir.url.appending(path: "Documents"))
+        try FileManager.default.createSymbolicLink(
+            at: dir.url.appending(path: ".Trash/docs"), withDestinationURL: dir.url.appending(path: "Documents"))
+
+        try await actions.emptyTrash(dir.url.appending(path: ".Trash"))
+
+        #expect(exists("Documents/precious.txt"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path).isEmpty)
     }
 
     @Test("The dialog closing before its button runs still empties the Trash")
@@ -493,12 +510,31 @@ struct SmartCleanTests {
 
     @Test("A partly emptied folder in the Trash counts as deleted: the undo steps are dropped")
     func partlyEmptiedFolderDropsUndo() async throws {
-        // Removing a folder deletes its contents one by one and stops at the first it can't, so
-        // a folder whose removal failed may be partly gone: that counts as deleted.
+        // Emptying goes on past an item it can't delete, so everything else in the folder goes.
         let locked = try lockedTrashFile("Box/m.txt")
         defer { unlock(locked) }
         try ["a", "b", "y", "z"].forEach { try dir.file(".Trash/Box/\($0).txt", bytes: 1) }
-        try await registerTrashUndoStep()
+        let step = try await registerTrashUndoStep()
+        #expect(chflags(step.path, UInt32(UF_IMMUTABLE)) == 0)   // only the folder's files can go
+        defer { unlock(step) }
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(exists(".Trash/Box/m.txt"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash/Box").path) == ["m.txt"])
+        #expect(model.alertMessage != nil)
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("A folder in the Trash that loses nothing keeps the undo steps")
+    func untouchedFolderKeepsUndo() async throws {
+        let locked = try lockedTrashFile("Box/m.txt")
+        defer { unlock(locked) }
+        let step = try await registerTrashUndoStep()
+        #expect(chflags(step.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { unlock(step) }
         let model = model([])
 
         model.requestEmptyTrash()
@@ -506,6 +542,19 @@ struct SmartCleanTests {
 
         #expect(exists(".Trash/Box/m.txt"))
         #expect(model.alertMessage != nil)
+        #expect(undoManager.canUndo)
+    }
+
+    @Test("Emptying a Trash already emptied elsewhere (Finder) drops the undo steps that pointed into it")
+    func alreadyEmptyTrashDropsUndo() async throws {
+        let step = try await registerTrashUndoStep()
+        try FileManager.default.removeItem(at: step)   // emptied in Finder
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(model.alertMessage == nil)
         #expect(!undoManager.canUndo)
     }
 
