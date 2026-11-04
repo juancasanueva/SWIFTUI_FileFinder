@@ -7,7 +7,7 @@ nonisolated struct StorageOverview: Equatable, Sendable {
     var available: Int64
     /// /Applications and ~/Applications.
     var apps: Int64?
-    /// The home folder without ~/Library and the Trash.
+    /// The home folder without ~/Library, ~/Applications (counted as Apps) and the Trash.
     var yourFiles: Int64?
     /// ~/Library: app data and caches.
     var other: Int64?
@@ -36,7 +36,7 @@ nonisolated struct StorageOverview: Equatable, Sendable {
         let children = (try? FileManager.default.contentsOfDirectory(
             at: environment.home, includingPropertiesForKeys: nil)) ?? []
         return children
-            .filter { !["Library", ".Trash"].contains($0.lastPathComponent) }
+            .filter { !["Library", "Applications", ".Trash"].contains($0.lastPathComponent) }
             .reduce(0) { Task.isCancelled ? $0 : $0 + CleanWalker.size(of: $1) }
     }
 
@@ -59,6 +59,12 @@ final class SmartCleanModel {
     @ObservationIgnored private let measuresStorage: Bool
     /// Bumped per scan, so a slow, older scan never overwrites a newer one.
     @ObservationIgnored private var generation = 0
+    /// Items already shown in this scan: a later suggestion listing one again must not tick
+    /// it again after the user unticked it.
+    @ObservationIgnored private var offered: Set<URL> = []
+    /// Set by `requestEmptyTrash`, cleared by cancel or confirm. Separate from the dialog's
+    /// `isConfirmingEmptyTrash`, which SwiftUI resets before the button's action runs.
+    @ObservationIgnored private var emptyTrashRequested = false
 
     private(set) var storage: StorageOverview?
     /// Every kind, in display order, once a scan started.
@@ -142,6 +148,7 @@ final class SmartCleanModel {
         suggestions = SuggestionKind.allCases.map { CleanSuggestion(kind: $0, candidates: []) }
         failures = [:]
         ticked = []
+        offered = []
         scanningKinds = Set(scanners.map(\.kind))
         async let storage: Void = measureStorage(environment, generation: generation)
         await withTaskGroup(of: (SuggestionKind, Result<[CleanCandidate], any Error>).self) { group in
@@ -175,8 +182,9 @@ final class SmartCleanModel {
             .filter { FileManager.default.fileExists(atPath: $0.url.path) }
             .sorted { $0.bytes > $1.bytes }
         suggestions[index].candidates += present
-        for candidate in present where candidate.isTickedByDefault ?? (kind.group == .safe) {
-            ticked.insert(candidate.url)
+        for candidate in present where !offered.contains(candidate.url) {
+            offered.insert(candidate.url)
+            if candidate.isTickedByDefault ?? (kind.group == .safe) { ticked.insert(candidate.url) }
         }
     }
 
@@ -204,9 +212,10 @@ final class SmartCleanModel {
 
     // MARK: Cleaning
 
-    /// Moves the ticked items to the Trash as one undoable step, then looks again.
+    /// Moves the ticked items to the Trash as one undoable step, then looks again. Items gone
+    /// since the scan are skipped, so they don't stop the rest.
     func clean() async {
-        let urls = itemsToClean.map(\.url)
+        let urls = itemsToClean.map(\.url).filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !urls.isEmpty, !isCleaning else { return }
         isCleaning = true
         defer { isCleaning = false }
@@ -219,16 +228,26 @@ final class SmartCleanModel {
     }
 
     /// Empty Trash always asks first (`isConfirmingEmptyTrash` shows the dialog).
-    func requestEmptyTrash() { isConfirmingEmptyTrash = true }
-    func cancelEmptyTrash() { isConfirmingEmptyTrash = false }
+    func requestEmptyTrash() {
+        emptyTrashRequested = true
+        isConfirmingEmptyTrash = true
+    }
 
-    /// Deletes the Trash's contents for good; only after `requestEmptyTrash`.
+    func cancelEmptyTrash() {
+        emptyTrashRequested = false
+        isConfirmingEmptyTrash = false
+    }
+
+    /// Deletes the Trash's contents for good; only after `requestEmptyTrash`. The undo steps
+    /// that moved items there can't work anymore, so they are dropped.
     func confirmEmptyTrash() async {
-        guard isConfirmingEmptyTrash else { return }
+        guard emptyTrashRequested else { return }
+        emptyTrashRequested = false
         isConfirmingEmptyTrash = false
         let environment = await Self.make(self.environment)
         do {
             try await actions.emptyTrash(environment.trash)
+            actions.undoManager?.removeAllActions(withTarget: actions)
         } catch {
             alertMessage = error.localizedDescription
         }

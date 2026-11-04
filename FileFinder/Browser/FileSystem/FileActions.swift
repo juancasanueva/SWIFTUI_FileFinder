@@ -332,12 +332,12 @@ final class FileActions {
     }
 
     /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
-    /// Refuses any folder that isn't a Trash.
+    /// Refuses anything that isn't a real folder named ".Trash": a link named ".Trash" would
+    /// otherwise empty the folder it points to.
     func emptyTrash(_ trash: URL) async throws {
-        var isDirectory: ObjCBool = false
-        guard trash.lastPathComponent == ".Trash",
-              FileManager.default.fileExists(atPath: trash.path, isDirectory: &isDirectory), isDirectory.boolValue
-        else { throw FileActionError.notTheTrash }
+        // `attributesOfItem` doesn't follow a final link (unlike `fileExists(atPath:isDirectory:)`).
+        let type = (try? FileManager.default.attributesOfItem(atPath: trash.path))?[.type] as? FileAttributeType
+        guard trash.lastPathComponent == ".Trash", type == .typeDirectory else { throw FileActionError.notTheTrash }
         try await serialized { try await Self.performEmptyTrash(trash) }
     }
 

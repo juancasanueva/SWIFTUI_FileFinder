@@ -170,6 +170,92 @@ struct SmartCleanTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path).isEmpty)
     }
 
+    @Test("A Trash that is a link to another folder is never emptied")
+    func symlinkedTrash() async throws {
+        try FileManager.default.removeItem(at: dir.url.appending(path: ".Trash"))
+        try dir.file("Documents/precious.txt", bytes: 5)
+        try FileManager.default.createSymbolicLink(
+            at: dir.url.appending(path: ".Trash"), withDestinationURL: dir.url.appending(path: "Documents"))
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(exists("Documents/precious.txt"))
+        #expect(model.alertMessage == FileActionError.notTheTrash.localizedDescription)
+        await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+    }
+
+    @Test("The dialog closing before its button runs still empties the Trash")
+    func dialogDismissedFirst() async throws {
+        try dir.file(".Trash/old.txt")
+        let model = model([])
+
+        model.requestEmptyTrash()
+        model.isConfirmingEmptyTrash = false   // SwiftUI resets the binding before the action
+        await model.confirmEmptyTrash()
+
+        #expect(!exists(".Trash/old.txt"))
+    }
+
+    @Test("Emptying the Trash drops the undo steps that pointed into it")
+    func emptyDropsUndo() async throws {
+        let file = try dir.file("cache.bin", bytes: 1)
+        let model = model([FixedScanner(kind: .developerCaches) { _ in [CleanCandidate(url: file, bytes: 1, detail: "")] }])
+        await model.lookAgain()
+        await model.clean()
+        #expect(undoManager.canUndo)
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("An item the user unticked stays unticked when a slower suggestion lists it too")
+    func untickSticks() async throws {
+        let dmg = try dir.file("Downloads/App.dmg", bytes: 4)
+        let gate = Gate()
+        let model = model([
+            FixedScanner(kind: .installers) { _ in [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+            SlowScanner(kind: .duplicates, gate: gate) { [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+        ])
+        let scan = Task { await model.lookAgain() }
+        while !model.isTicked(dmg) { await Task.yield() }
+
+        model.toggle(dmg)
+        await gate.open()
+        await scan.value
+
+        #expect(!model.isTicked(dmg))
+    }
+
+    @Test("An item gone since the scan doesn't stop the others from being cleaned")
+    func vanishedItem() async throws {
+        let a = try dir.file("a.bin", bytes: 1)
+        let b = try dir.file("b.bin", bytes: 1)
+        let c = try dir.file("c.bin", bytes: 1)
+        let model = model([FixedScanner(kind: .developerCaches) { _ in
+            [a, b, c].map { CleanCandidate(url: $0, bytes: 1, detail: "") }
+        }])
+        await model.lookAgain()
+        try FileManager.default.removeItem(at: b)
+
+        await model.clean()
+
+        #expect(!exists("a.bin") && !exists("c.bin"))
+        #expect(model.alertMessage == nil)
+    }
+
+    @Test("Your files leave out ~/Applications, which Apps already counts")
+    func noDoubleCountedApps() async throws {
+        try dir.file("Applications/Big.app/Contents/bin", bytes: 1000)
+        try dir.file("Documents/doc", bytes: 10)
+        let env = environment()
+        #expect(await StorageOverview.measureApps(env) == 1000)
+        #expect(await StorageOverview.measureYourFiles(env) == 10)
+    }
+
     @Test("Emptying refuses any folder that isn't a Trash")
     func emptyOnlyTrash() async throws {
         let folder = try dir.folder("Documents")
@@ -259,5 +345,33 @@ extension CleanEnvironment {
             home: home, applicationFolders: [home.appending(path: "Applications")], now: now,
             installedApps: installedApps, ownBundleID: "com.juancasanueva.FileFinder",
             lastOpened: lastOpened, isScreenCapture: isScreenCapture)
+    }
+}
+
+/// Lets a test decide when a slow scanner finishes.
+actor Gate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
+}
+
+struct SlowScanner: SuggestionScanner {
+    let kind: SuggestionKind
+    let gate: Gate
+    let candidates: @Sendable () -> [CleanCandidate]
+
+    func scan(_ environment: CleanEnvironment) async throws -> [CleanCandidate] {
+        await gate.wait()
+        return candidates()
     }
 }
