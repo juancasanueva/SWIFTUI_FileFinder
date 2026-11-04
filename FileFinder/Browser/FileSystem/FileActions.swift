@@ -386,7 +386,7 @@ final class FileActions {
     }
 
     /// What emptying did so far: whether anything at all was deleted, and the first failure.
-    private struct Deletion {
+    private nonisolated struct Deletion {
         var deletedSomething = false
         var error: (any Error)?
 
@@ -425,29 +425,47 @@ final class FileActions {
         return (deletion.deletedSomething, deletion.error)
     }
 
-    /// Deletes the entry `name` of the open folder `parent`; a folder's contents first, through
-    /// its own descriptor. Links are deleted, never followed.
+    /// Deletes the entry `name` of the open folder `parent`; a folder's contents first, each
+    /// folder through its own descriptor. Links are deleted, never followed. Walks with an
+    /// explicit stack, so however deep a folder is, it never runs out of thread stack.
     private nonisolated static func remove(_ name: [CChar], in parent: Int32, path: String, _ deletion: inout Deletion) {
-        var info = stat()
-        guard fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return deletion.fail(errno, path: path) }
-        guard info.st_mode & S_IFMT == S_IFDIR else {
-            if unlinkat(parent, name, 0) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: path) }
-            return
+        struct Folder {
+            let descriptor: Int32, parent: Int32, name: [CChar], path: String
+            let entries: [[CChar]]
+            var next = 0
         }
-        let folder = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard folder >= 0 else { return deletion.fail(errno, path: path) }
-        if let names = entryNames(of: folder) {
-            for child in names { remove(child, in: folder, path: path + "/" + displayName(child), &deletion) }
-        } else {
-            deletion.fail(errno, path: path)
+        var open: [Folder] = []
+        // Deletes anything but a folder at once; opens a folder so its entries go first.
+        func visit(_ name: [CChar], in parent: Int32, path: String) {
+            var info = stat()
+            guard fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return deletion.fail(errno, path: path) }
+            guard info.st_mode & S_IFMT == S_IFDIR else {
+                if unlinkat(parent, name, 0) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: path) }
+                return
+            }
+            let folder = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard folder >= 0 else { return deletion.fail(errno, path: path) }
+            let entries = entryNames(of: folder)
+            if entries == nil { deletion.fail(errno, path: path) }
+            open.append(Folder(descriptor: folder, parent: parent, name: name, path: path, entries: entries ?? []))
         }
-        close(folder)
-        if unlinkat(parent, name, AT_REMOVEDIR) == 0 {
-            deletion.deletedSomething = true
-        } else {
-            let code = errno
-            // Not empty because something inside couldn't go: that failure is already recorded.
-            if code != ENOTEMPTY || deletion.error == nil { deletion.fail(code, path: path) }
+        visit(name, in: parent, path: path)
+        while let top = open.indices.last {
+            if open[top].next < open[top].entries.count {
+                let child = open[top].entries[open[top].next]
+                open[top].next += 1
+                visit(child, in: open[top].descriptor, path: open[top].path + "/" + displayName(child))
+                continue
+            }
+            let folder = open.removeLast()
+            close(folder.descriptor)
+            if unlinkat(folder.parent, folder.name, AT_REMOVEDIR) == 0 {
+                deletion.deletedSomething = true
+            } else {
+                let code = errno
+                // Not empty because something inside couldn't go: that failure is already recorded.
+                if code != ENOTEMPTY || deletion.error == nil { deletion.fail(code, path: folder.path) }
+            }
         }
     }
 

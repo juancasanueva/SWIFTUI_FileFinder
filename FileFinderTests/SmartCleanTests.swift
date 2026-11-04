@@ -528,6 +528,26 @@ struct SmartCleanTests {
         #expect(!undoManager.canUndo)
     }
 
+    @Test("A very deep folder in the Trash is emptied without running out of stack")
+    func deepFolderEmptied() async throws {
+        // Built with descriptors: the path would be too long for path-based calls.
+        var folder = open(dir.url.appending(path: ".Trash").path, O_RDONLY | O_DIRECTORY)
+        for _ in 0..<600 {
+            #expect(mkdirat(folder, "d", 0o755) == 0)
+            let child = openat(folder, "d", O_RDONLY | O_DIRECTORY)
+            close(folder)
+            folder = child
+        }
+        let leaf = openat(folder, "leaf.txt", O_WRONLY | O_CREAT, 0o644)
+        #expect(leaf >= 0)
+        close(leaf)
+        close(folder)
+
+        try await actions.emptyTrash(dir.url.appending(path: ".Trash"))
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path).isEmpty)
+    }
+
     @Test("A folder in the Trash that loses nothing keeps the undo steps")
     func untouchedFolderKeepsUndo() async throws {
         let locked = try lockedTrashFile("Box/m.txt")
