@@ -605,6 +605,24 @@ struct SmartCleanTests {
         #expect(left > count / 2)   // only what went before the move is gone
     }
 
+    @Test("Folders without search permission: an empty one is deleted, a full one is kept with a permission error")
+    func unsearchableFolders() async throws {
+        let empty = try dir.folder(".Trash/EmptyRO")
+        try dir.file(".Trash/FullRO/inner.txt", bytes: 1)
+        let full = dir.url.appending(path: ".Trash/FullRO")
+        #expect(chmod(empty.path, 0o644) == 0 && chmod(full.path, 0o644) == 0)
+        defer { chmod(full.path, 0o755) }
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(!exists(".Trash/EmptyRO"))
+        chmod(full.path, 0o755)
+        #expect(exists(".Trash/FullRO/inner.txt"))
+        #expect(model.alertMessage?.contains("“inner.txt” couldn’t be removed") == true)
+    }
+
     @Test("A folder in the Trash that loses nothing keeps the undo steps")
     func untouchedFolderKeepsUndo() async throws {
         let locked = try lockedTrashFile("Box/m.txt")

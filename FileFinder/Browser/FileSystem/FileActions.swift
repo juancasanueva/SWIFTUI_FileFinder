@@ -7,7 +7,7 @@ enum FileActionError: LocalizedError, Equatable {
     case cannotCopyIntoItself
     case cannotReplaceContainingFolder(String)
     case notTheTrash
-    case leftTheTrash(String)
+    case movedWhileEmptying(String)
 
     var errorDescription: String? {
         switch self {
@@ -17,7 +17,7 @@ enum FileActionError: LocalizedError, Equatable {
         case .cannotReplaceContainingFolder(let name):
             "“\(name)” can't be replaced because it contains the item being moved or copied."
         case .notTheTrash: "Only the Trash can be emptied."
-        case .leftTheTrash(let name): "“\(name)” was moved out of the Trash while it was being emptied, so what was left of it was kept."
+        case .movedWhileEmptying(let name): "“\(name)” was moved while the Trash was being emptied, so what was left of it was kept."
         }
     }
 }
@@ -447,9 +447,9 @@ final class FileActions {
     /// Deletes the Trash's top-level entry `name`; a folder's contents first. Links are deleted,
     /// never followed. Walks with an explicit stack and keeps only the folder it works in open,
     /// going down by name and back up through "..", each checked to be the expected folder.
-    /// Before every deletion the folder must still be in its parent: one moved out of the Trash
-    /// meanwhile stops being emptied (a folder whose ancestor was moved out, once the walk
-    /// climbs back to it).
+    /// Before every deletion the folder must still be in its parent: one moved meanwhile (out of
+    /// the Trash, say) stops being emptied; a folder whose ancestor was moved, once the walk
+    /// climbs back to that ancestor.
     private nonisolated static func remove(
         _ name: [CChar], inTrash trash: Int32, identity trashIdentity: FolderIdentity, path: String,
         _ deletion: inout Deletion
@@ -469,9 +469,9 @@ final class FileActions {
             ([path] + chain.prefix(depth).dropFirst().map { displayName($0.name) } + [name.map(displayName)].compactMap { $0 })
                 .joined(separator: "/")
         }
-        // Stops emptying this entry: part of it left the Trash.
-        func leftTheTrash() {
-            deletion.error = deletion.error ?? FileActionError.leftTheTrash(chain.last.map { displayName($0.name) } ?? displayName(name))
+        // Stops emptying this entry: part of it was moved.
+        func stopMoved() {
+            deletion.error = deletion.error ?? FileActionError.movedWhileEmptying(chain.last.map { displayName($0.name) } ?? displayName(name))
             chain.removeAll()
         }
         // Deletes anything but a folder at once; enters a folder so its entries go first.
@@ -497,6 +497,17 @@ final class FileActions {
                 entries = []
                 deletion.fail(failure.code, path: itemPath())
             }
+            // Without search permission nothing in it can be reached (nor its ".."): don't enter
+            // it. An empty one can still go; a full one stays, with its first entry's error.
+            var parentInfo = stat()
+            if fstatat(folder, "..", &parentInfo, AT_SYMLINK_NOFOLLOW) != 0, errno == EACCES {
+                close(folder)
+                if let first = entries.first {
+                    return deletion.fail(EACCES, path: itemPath() + "/" + displayName(first))
+                }
+                if unlinkat(parent, name, AT_REMOVEDIR) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: itemPath()) }
+                return
+            }
             if current >= 0 { close(current) }
             current = folder
             chain.append(Folder(identity: identity, name: name, entries: entries))
@@ -506,7 +517,7 @@ final class FileActions {
         while let last = chain.indices.last {
             // Still in the same parent: moving it out of the Trash changes its parent.
             guard FolderIdentity(of: current, relativePath: "..") == parentIdentity(of: last) else {
-                leftTheTrash()
+                stopMoved()
                 continue
             }
             if chain[last].next < chain[last].entries.count {
@@ -523,7 +534,7 @@ final class FileActions {
                 parent = openat(current, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
                 guard parent >= 0, FolderIdentity(of: parent) == chain[last - 1].identity else {
                     if parent >= 0 { close(parent) }
-                    leftTheTrash()
+                    stopMoved()
                     continue
                 }
             }
