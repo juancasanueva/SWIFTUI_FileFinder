@@ -99,3 +99,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R3-002 The mid-way refusal, empty-Trash and lone-undeletable-file outcomes have no committed tests (verifier scratch only).
   - R3-003 partlyEmptiedFolderDropsUndo now proves the conservative rule, not real partial deletion.
   - R3-004 dropTrashUndo runs inside the serialized Task, which inherits FileActions' main-actor isolation (default MainActor isolation) — checked, no issue.
+- L30 2026-11-04 Manual check of the Smart Clean window by the user: "IT look ok ans works". Scan, ticks, duplicates, Clean + Undo, Look Again, Empty Trash and closing during a scan were offered as the checklist.
