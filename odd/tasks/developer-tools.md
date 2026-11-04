@@ -18,12 +18,16 @@ Quoted from the reference site (fileosmac.com):
 
 ## Tasks
 
-- [ ] T1 S1 — GitStatus reader (repo root, HEAD, porcelain count, safe git lookup), pane state, path bar display — inline
-- [ ] T2 S2,S3 — developer app catalog, installed detection, preferences, open actions, ⌥⇧⌘T/⌥⇧⌘E, toolbar, right-click, Settings scene — inline
-- [ ] T3 S4 — path bar commands — inline
+- [x] T1 S1 — GitStatus reader (repo root, HEAD, porcelain count, safe git lookup), pane state, path bar display — inline — ad54e30 (RED→GREEN, 196/196)
+- [x] T2 S2,S3 — developer app catalog, installed detection, preferences, open actions, ⌥⇧⌘T/⌥⇧⌘E, toolbar, right-click, Settings scene — inline — c785b04 (RED→GREEN, 205/205)
+- [x] T3 S4 — path bar commands — inline — 3fde66e (RED→GREEN, 210/210; app launches)
+- [ ] T4 S1 — git status must never run commands from the repository's config (core.fsmonitor, filter drivers, submodules) — inline — d5a760e (behavioral RED observed → GREEN, 212/212); Risk: item 2; independent verifier + native review pending
 
 Route evidence: T3 depends on T2; T1 touches PathBar like T3; no Writer trigger.
 
 ## Log
 
 - L1 (2026-11-04) User: "Developer feature" (picked developer features as the next slice). Developer caches belong to Smart Clean and are out of scope.
+- L2 T1-T3: GitStatusReader (repository root incl. worktree .git files, HEAD from disk, `--no-optional-locks` porcelain count, git only from Homebrew/usr-local/CLT/Xcode so the install prompt never appears), pane gitStatus refreshed on reload and on deep changes; DeveloperTools catalog + Settings (⌘,) + ⌥⇧⌘T/⌥⇧⌘E + toolbar + right-click; PathBarCommand + BrowserModel.submitPath (an existing folder wins over a command).
+- L3 Native assess (base 5f0fcb7, committed-only) after T3: medium, under_budget.
+- L4 Found while writing the Risk line: `git status` runs commands from untrusted repo config (core.fsmonitor hook; clean filters on stat-dirty files). Behavioral RED reproduced (marker created by the reader). T4 fix: `-c core.fsmonitor=false`, every configured filter driver's clean/process emptied and required=false (driver names read via `git config --name-only --get-regexp`), `--ignore-submodules=all`. Test also proves plain git status still runs the trap.
