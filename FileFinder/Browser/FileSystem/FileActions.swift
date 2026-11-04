@@ -67,6 +67,9 @@ final class TransferProgress {
 }
 
 /// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
+/// Identity for the undo steps that restore items from the Trash.
+private final class TrashUndoTarget {}
+
 nonisolated struct FileTransfer: Equatable, Sendable {
     let from: URL
     let to: URL
@@ -126,6 +129,9 @@ final class FileActions {
     @ObservationIgnored var onBackgroundError: ((String) -> Void)?
     /// Tail of the serial queue of disk work.
     @ObservationIgnored private var lastWork: Task<Void, Never>?
+    /// The undo target of steps that bring items back out of the Trash, so emptying the Trash
+    /// can drop exactly those.
+    @ObservationIgnored private let trashUndoTarget = TrashUndoTarget()
     /// Cancel handles of queued and running operations, and which one is running.
     @ObservationIgnored private var cancellers: [UUID: () -> Void] = [:]
     @ObservationIgnored private var runningOperation: UUID?
@@ -331,6 +337,12 @@ final class FileActions {
         }
     }
 
+    /// Drops the undo steps that would bring items back out of the Trash, once emptying it
+    /// deleted them; every other undo step (renames, moves, copies…) stays.
+    func dropTrashUndo() {
+        undoManager?.removeAllActions(withTarget: trashUndoTarget)
+    }
+
     /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
     /// Refuses anything that isn't a real folder named ".Trash": a link named ".Trash" would
     /// otherwise empty the folder it points to.
@@ -404,15 +416,18 @@ final class FileActions {
 
     /// `done` already happened; undoing it moves those items back.
     private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer]) {
-        registerRelocationUndo(actionName, RelocationRecord(transfers: done))
+        let intoTrash = done.contains { $0.to.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" } }
+        registerRelocationUndo(actionName, RelocationRecord(transfers: done), restoresFromTrash: intoTrash ? true : nil)
     }
 
     /// Undo and redo hand each other a record of what their disk work really moved, so a step
-    /// that stopped partway is reversed only as far as it got.
-    private func registerRelocationUndo(_ actionName: String, _ record: RelocationRecord) {
-        registerUndo(actionName) { actions in
+    /// that stopped partway is reversed only as far as it got. `restoresFromTrash` is `nil` for
+    /// steps unrelated to the Trash; for Trash moves it says whether this entry brings items
+    /// back out of it (then emptying the Trash breaks it, see `dropTrashUndo`) or puts them in.
+    private func registerRelocationUndo(_ actionName: String, _ record: RelocationRecord, restoresFromTrash: Bool?) {
+        registerUndo(actionName, target: restoresFromTrash == true ? trashUndoTarget : self) { actions in
             let reverse = RelocationRecord(transfers: [])
-            actions.registerRelocationUndo(actionName, reverse)
+            actions.registerRelocationUndo(actionName, reverse, restoresFromTrash: restoresFromTrash.map { !$0 })
             actions.enqueue {
                 // Read the record when the work runs: the step before it has finished by then.
                 let plan = record.transfers.reversed().map(\.reversed)
@@ -480,12 +495,16 @@ final class FileActions {
 
     /// Inverse steps must be registered synchronously inside the undo/redo call so the undo
     /// manager files them on the right stack; only the disk work is deferred.
-    private func registerUndo(_ actionName: String, _ handler: @escaping (FileActions) -> Void) {
+    private func registerUndo(
+        _ actionName: String, target: AnyObject? = nil, _ handler: @escaping (FileActions) -> Void
+    ) {
         guard let undoManager else { return }
         // Registrations made while undoing/redoing are grouped by the undo manager itself.
         let needsGroup = !undoManager.isUndoing && !undoManager.isRedoing
         if needsGroup { undoManager.beginUndoGrouping() }
-        undoManager.registerUndo(withTarget: self) { handler($0) }
+        undoManager.registerUndo(withTarget: target ?? self) { [weak self] _ in
+            if let self { handler(self) }
+        }
         undoManager.setActionName(actionName)
         if needsGroup { undoManager.endUndoGrouping() }
     }

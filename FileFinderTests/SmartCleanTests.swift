@@ -230,7 +230,7 @@ struct SmartCleanTests {
         try FileManager.default.createSymbolicLink(
             at: dir.url.appending(path: ".Trash"), withDestinationURL: dir.url.appending(path: "Documents"))
         let model = model([])
-        registerUndoStep()
+        try await registerTrashUndoStep()
 
         model.requestEmptyTrash()
         await model.confirmEmptyTrash()
@@ -322,10 +322,52 @@ struct SmartCleanTests {
         #expect(!undoManager.canUndo)
     }
 
-    private func registerUndoStep() {
-        undoManager.beginUndoGrouping()
-        undoManager.registerUndo(withTarget: actions) { _ in }
-        undoManager.endUndoGrouping()
+    /// A real "Move to Trash" undo step (the tiny file goes to the real Trash).
+    private func registerTrashUndoStep() async throws {
+        try await actions.trash([try dir.file("step-\(UUID()).bin", bytes: 1)])
+        #expect(undoManager.canUndo)
+    }
+
+    @Test("A Trash move undone then redone is still dropped by emptying; an undone one keeps its Redo")
+    func emptyAfterUndoRedo() async throws {
+        let first = try dir.file("first.bin", bytes: 1)
+        let second = try dir.file("second.bin", bytes: 1)
+        try await actions.trash([first])
+        undoManager.undo()
+        await actions.waitForPendingWork()
+        undoManager.redo()                      // first.bin is in the Trash again
+        await actions.waitForPendingWork()
+        try await actions.trash([second])
+        undoManager.undo()                      // second.bin is back, its Redo waits
+        await actions.waitForPendingWork()
+        try dir.file(".Trash/old.txt")
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(!undoManager.canUndo)
+        #expect(undoManager.canRedo && exists("second.bin"))
+    }
+
+    @Test("Emptying the Trash drops only the undo steps into the Trash; a rename keeps its Undo")
+    func emptyKeepsUnrelatedUndo() async throws {
+        let file = try dir.file("cache.bin", bytes: 1)
+        let draft = try dir.file("draft.txt")
+        try dir.file(".Trash/old.txt")
+        let model = model([FixedScanner(kind: .developerCaches) { _ in [CleanCandidate(url: file, bytes: 1, detail: "")] }])
+        await model.lookAgain()
+        await model.clean()
+        try await actions.rename(draft, to: "final.txt")
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(undoManager.undoActionName == "Rename")
+        undoManager.undo()
+        await actions.waitForPendingWork()
+        #expect(exists("draft.txt") && !exists("final.txt"))
+        #expect(!undoManager.canUndo)   // the Smart Clean step is gone
     }
 
     /// A file in the test Trash that can't be deleted until `unlock` runs.
@@ -342,7 +384,7 @@ struct SmartCleanTests {
         let locked = try lockedTrashFile("locked.txt")
         defer { unlock(locked) }
         try dir.file(".Trash/gone.txt", bytes: 1)
-        registerUndoStep()
+        try await registerTrashUndoStep()
         let model = model([])
 
         model.requestEmptyTrash()
@@ -361,7 +403,7 @@ struct SmartCleanTests {
         defer { unlock(locked) }
         let others = ["a", "b", "y", "z"].map { ".Trash/Box/\($0).txt" }
         try others.forEach { try dir.file($0, bytes: 1) }
-        registerUndoStep()
+        try await registerTrashUndoStep()
         let model = model([])
 
         model.requestEmptyTrash()
@@ -376,7 +418,7 @@ struct SmartCleanTests {
     func failedEmptyKeepsUndo() async throws {
         let locked = try lockedTrashFile("locked.txt")
         defer { unlock(locked) }
-        registerUndoStep()
+        try await registerTrashUndoStep()
         let model = model([])
 
         model.requestEmptyTrash()

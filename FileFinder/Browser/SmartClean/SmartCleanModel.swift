@@ -287,7 +287,7 @@ final class SmartCleanModel {
     }
 
     /// Deletes the Trash's contents for good; only after `requestEmptyTrash`. The undo steps
-    /// that moved items there can't work anymore, so they are dropped, also when emptying
+    /// that moved items there can't work anymore, so they are dropped (only those), also when emptying
     /// failed partway; they stay only when nothing was deleted.
     func confirmEmptyTrash() async {
         guard emptyTrashRequested else { return }
@@ -297,12 +297,12 @@ final class SmartCleanModel {
         let itemsBefore = await Self.itemCount(in: environment.trash)
         do {
             try await actions.emptyTrash(environment.trash)
-            actions.undoManager?.removeAllActions(withTarget: actions)
+            actions.dropTrashUndo()
         } catch {
             alertMessage = error.localizedDescription
             let refused = (error as? FileActionError) == .notTheTrash
             if !refused, let itemsBefore, (await Self.itemCount(in: environment.trash) ?? 0) < itemsBefore {
-                actions.undoManager?.removeAllActions(withTarget: actions)
+                actions.dropTrashUndo()
             }
         }
         if measuresStorage {
