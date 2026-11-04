@@ -6,6 +6,7 @@ enum FileActionError: LocalizedError, Equatable {
     case nameTaken(String)
     case cannotCopyIntoItself
     case cannotReplaceContainingFolder(String)
+    case notTheTrash
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +15,7 @@ enum FileActionError: LocalizedError, Equatable {
         case .cannotCopyIntoItself: "A folder can't be copied or moved into itself."
         case .cannotReplaceContainingFolder(let name):
             "“\(name)” can't be replaced because it contains the item being moved or copied."
+        case .notTheTrash: "Only the Trash can be emptied."
         }
     }
 }
@@ -320,12 +322,36 @@ final class FileActions {
 
     // MARK: - Trash
 
-    func trash(_ urls: [URL]) async throws {
+    /// Moves items to the Trash as one undo step named `actionName`.
+    func trash(_ urls: [URL], actionName: String = "Move to Trash") async throws {
         try await serialized {
             let result = await Self.performTrash(urls)
-            if !result.done.isEmpty { self.registerRelocationUndo("Move to Trash", result.done) }
+            if !result.done.isEmpty { self.registerRelocationUndo(actionName, result.done) }
             if let error = result.error { throw error }
         }
+    }
+
+    /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
+    /// Refuses any folder that isn't a Trash.
+    func emptyTrash(_ trash: URL) async throws {
+        var isDirectory: ObjCBool = false
+        guard trash.lastPathComponent == ".Trash",
+              FileManager.default.fileExists(atPath: trash.path, isDirectory: &isDirectory), isDirectory.boolValue
+        else { throw FileActionError.notTheTrash }
+        try await serialized { try await Self.performEmptyTrash(trash) }
+    }
+
+    @concurrent private nonisolated static func performEmptyTrash(_ trash: URL) async throws {
+        let fileManager = FileManager.default
+        var firstError: (any Error)?
+        for name in try fileManager.contentsOfDirectory(atPath: trash.path) {
+            do {
+                try fileManager.removeItem(at: trash.appending(path: name))
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
     }
 
     // MARK: - Clipboard
