@@ -766,6 +766,30 @@ struct SmartCleanTests {
         #expect(model.alertMessage == nil)
     }
 
+    @Test("An older scan that measures late never resets the newer scan's storage overview")
+    func olderScanKeepsNewerStorage() async throws {
+        let calls = CallCounter(), gate = Gate()
+        let home = dir.url
+        let model = SmartCleanModel(
+            actions: actions, scanners: [], environment: { CleanEnvironment.testing(home: home) },
+            capacity: { _ in
+                if await calls.next() == 1 {
+                    await gate.wait()
+                    return (total: 999, available: 1)   // the older scan's, arriving last
+                }
+                return (total: 1_000, available: 500)
+            })
+        let older = Task { await model.lookAgain() }
+        while await calls.count < 1 { await Task.yield() }
+
+        await model.lookAgain()
+        #expect(model.storage?.total == 1_000 && model.storage?.trash != nil)
+        await gate.open()
+        await older.value
+
+        #expect(model.storage?.total == 1_000 && model.storage?.trash != nil)
+    }
+
     @Test("Your files leave out ~/Applications, which Apps already counts")
     func noDoubleCountedApps() async throws {
         try dir.file("Applications/Big.app/Contents/bin", bytes: 1000)
@@ -904,6 +928,12 @@ struct UntilCancelledScanner: SuggestionScanner {
         }
         return []
     }
+}
+
+/// Counts calls across tasks.
+actor CallCounter {
+    private(set) var count = 0
+    func next() -> Int { count += 1; return count }
 }
 
 /// Lets a test decide when a slow scanner finishes.

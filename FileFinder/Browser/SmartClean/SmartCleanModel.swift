@@ -57,6 +57,9 @@ final class SmartCleanModel {
     @ObservationIgnored private let scanners: [any SuggestionScanner]
     @ObservationIgnored private let environment: @Sendable () -> CleanEnvironment
     @ObservationIgnored private let measuresStorage: Bool
+    /// The volume's total and available bytes (injectable so tests control when it arrives).
+    typealias CapacityReader = @Sendable (URL) async -> (total: Int64, available: Int64)?
+    @ObservationIgnored private let capacity: CapacityReader
     /// Bumped per scan, so a slow, older scan never overwrites a newer one.
     @ObservationIgnored private var generation = 0
     /// The running scan, cancelled when a newer one starts so it stops working.
@@ -83,12 +86,14 @@ final class SmartCleanModel {
         actions: FileActions,
         scanners: [any SuggestionScanner] = SmartCleanScanners.all,
         environment: @escaping @Sendable () -> CleanEnvironment = CleanEnvironment.live,
-        measureStorage: Bool = true
+        measureStorage: Bool = true,
+        capacity: @escaping CapacityReader = { StorageOverview.capacity(of: $0) }
     ) {
         self.actions = actions
         self.scanners = scanners
         self.environment = environment
         self.measuresStorage = measureStorage
+        self.capacity = capacity
     }
 
     var isScanning: Bool { !scanningKinds.isEmpty }
@@ -233,8 +238,8 @@ final class SmartCleanModel {
 
     private func measureStorage(_ environment: CleanEnvironment, generation: Int) async {
         guard measuresStorage else { return }
-        guard let capacity = StorageOverview.capacity(of: environment.home) else { return }
-        // This child task may start after a newer scan began: never reset its overview.
+        guard let capacity = await capacity(environment.home) else { return }
+        // A newer scan may have begun meanwhile: never reset its overview.
         guard generation == self.generation else { return }
         storage = StorageOverview(total: capacity.total, available: capacity.available)
         async let apps = StorageOverview.measureApps(environment)
@@ -299,7 +304,7 @@ final class SmartCleanModel {
         if measuresStorage {
             let trash = await StorageOverview.measureTrash(environment)
             storage?.trash = trash
-            if let capacity = StorageOverview.capacity(of: environment.home) { storage?.available = capacity.available }
+            if let capacity = await capacity(environment.home) { storage?.available = capacity.available }
         }
     }
 }

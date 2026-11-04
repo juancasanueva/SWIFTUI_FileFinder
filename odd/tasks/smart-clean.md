@@ -53,7 +53,7 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T21 S6 — L34 R4-001/R3-001: Empty Trash keeps a constant number of open descriptors at any depth (each folder reached again from the Trash by name) — inline — (this commit) (RED on main: exit test with a 64-descriptor limit and 200 levels fails; GREEN)
 - [x] T22 S6 — L34 R1-001: a folder moved out of the Trash while it is being emptied stops being emptied — inline — (this commit) (RED on main: no error, the moved folder emptied; GREEN)
 - [x] T23 S6 — L34 R3-002: listing failures report their own error code; a read error never looks like the end of a folder — inline — (this commit) (no deterministic RED: a readdir or close failure cannot be caused in a test; covered by review)
-- [ ] T24 S2 — L34 R3-003: a test pins that an older scan never resets the storage overview (injectable capacity) — inline
+- [x] T24 S2 — L34 R3-003: a test pins that an older scan never resets the storage overview (injectable capacity) — inline — (this commit) (RED by mutation: without the guard the test fails; GREEN; full suite 330, one known TransferProgress cancel flake in 1 of 3 runs)
 
 ## Log
 
