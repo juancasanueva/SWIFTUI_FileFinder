@@ -5,6 +5,7 @@ import SwiftUI
 struct BrowserCommands: Commands {
     @FocusedValue(\.browser) private var browser
     @FocusedValue(\.browserWindow) private var window
+    @Environment(\.openWindow) private var openWindow
 
     private var hasSelection: Bool { !(browser?.selection.isEmpty ?? true) }
     private var isTyping: Bool { browser?.isTyping ?? false }
@@ -27,6 +28,7 @@ struct BrowserCommands: Commands {
                 .disabled(!(browser?.canTidy ?? false) || isTyping)
             Button("Tidy Downloads…") { Task { await browser?.tidyDownloads() } }
                 .disabled(browser == nil || isTyping)
+            Button("Smart Clean…") { openWindow(id: SmartCleanWindow.id) }
             Divider()
             Button(DeveloperTools.shared.openTitle(.terminal)) { browser?.openInTerminal() }
                 .keyboardShortcut("t", modifiers: [.command, .option, .shift])

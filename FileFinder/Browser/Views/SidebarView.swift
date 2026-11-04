@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
     let model: BrowserModel
     let window: BrowserWindowModel
+    @Environment(\.openWindow) private var openWindow
     @State private var favorites: [SidebarItem] = []
     @State private var locations: [SidebarItem] = []
     /// Bumped on every mount/unmount; restarting the refresh task drops older, slower results.
@@ -47,6 +48,11 @@ struct SidebarView: View {
             }
             Section {
                 row(SidebarLocations.trash(home: home))
+                Button { openWindow(id: SmartCleanWindow.id) } label: {
+                    Label("Smart Clean", systemImage: "sparkles.rectangle.stack")
+                }
+                .buttonStyle(.plain)
+                .help("Space back, safely: nine suggestions, Trash first, with Undo")
             }
         }
         .listStyle(.sidebar)

@@ -10,6 +10,10 @@ struct FileFinderApp: App {
             BrowserCommands()
         }
 
+        Window("Smart Clean", id: SmartCleanWindow.id) {
+            SmartCleanWindow()
+        }
+
         Settings {
             SettingsView(tools: .shared)
         }
