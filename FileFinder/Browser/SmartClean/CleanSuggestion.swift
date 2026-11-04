@@ -176,7 +176,10 @@ nonisolated protocol SuggestionScanner: Sendable {
 
 /// The scanners Smart Clean runs.
 nonisolated enum SmartCleanScanners {
-    static let all: [any SuggestionScanner] = []
+    static let all: [any SuggestionScanner] = [
+        DeveloperCachesScanner(), DuplicatesScanner(), InstallersScanner(), MailAttachmentsScanner(),
+        BigFilesScanner(), UnusedAppsScanner(), ScreenRecordingsScanner(), OldDownloadsScanner(), LeftoversScanner(),
+    ]
 }
 
 /// File-system walking shared by the scanners.
