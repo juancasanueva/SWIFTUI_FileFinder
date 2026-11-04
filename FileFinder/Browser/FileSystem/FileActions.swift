@@ -7,6 +7,7 @@ enum FileActionError: LocalizedError, Equatable {
     case cannotCopyIntoItself
     case cannotReplaceContainingFolder(String)
     case notTheTrash
+    case leftTheTrash(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,7 @@ enum FileActionError: LocalizedError, Equatable {
         case .cannotReplaceContainingFolder(let name):
             "“\(name)” can't be replaced because it contains the item being moved or copied."
         case .notTheTrash: "Only the Trash can be emptied."
+        case .leftTheTrash(let name): "“\(name)” was moved out of the Trash while it was being emptied, so what was left of it was kept."
         }
     }
 }
@@ -409,85 +411,162 @@ final class FileActions {
             return (false, code == ELOOP || code == ENOTDIR ? FileActionError.notTheTrash : removalError(code, path: trash.path))
         }
         defer { close(folder) }
-        var opened = stat()
-        guard fstat(folder, &opened) == 0, (opened.st_dev, opened.st_ino) == identity else {
+        guard let opened = FolderIdentity(of: folder), opened == FolderIdentity(identity) else {
             return (false, FileActionError.notTheTrash)
         }
-        guard let names = entryNames(of: folder) else { return (false, removalError(errno, path: trash.path)) }
+        let names: [[CChar]]
+        switch entryNames(of: folder) {
+        case .success(let found): names = found
+        case .failure(let failure): return (false, removalError(failure.code, path: trash.path))
+        }
         var deletion = Deletion()
         for name in names {
             // Still the same real folder at the Trash's path, never a link swapped in.
             guard let current = realFolderIdentity(trash), current == identity else {
                 return (deletion.deletedSomething, FileActionError.notTheTrash)
             }
-            remove(name, in: folder, path: trash.path + "/" + displayName(name), &deletion)
+            remove(name, inTrash: folder, identity: opened, path: trash.path + "/" + displayName(name), &deletion)
         }
         return (deletion.deletedSomething, deletion.error)
     }
 
-    /// Deletes the entry `name` of the open folder `parent`; a folder's contents first, each
-    /// folder through its own descriptor. Links are deleted, never followed. Walks with an
-    /// explicit stack, so however deep a folder is, it never runs out of thread stack.
-    private nonisolated static func remove(_ name: [CChar], in parent: Int32, path: String, _ deletion: inout Deletion) {
+    /// A folder's device and inode.
+    private nonisolated struct FolderIdentity: Equatable {
+        let device: dev_t, inode: ino_t
+
+        init(_ identity: (dev_t, ino_t)) { (device, inode) = identity }
+
+        init?(of descriptor: Int32, relativePath: String? = nil) {
+            var info = stat()
+            let found = relativePath.map { fstatat(descriptor, $0, &info, AT_SYMLINK_NOFOLLOW) } ?? fstat(descriptor, &info)
+            guard found == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+            (device, inode) = (info.st_dev, info.st_ino)
+        }
+    }
+
+    /// Deletes the Trash's top-level entry `name`; a folder's contents first. Links are deleted,
+    /// never followed. Walks with an explicit stack and keeps only the folder it works in open,
+    /// going down by name and back up through "..", each checked to be the expected folder.
+    /// Before every deletion the folder must still be in its parent: one moved out of the Trash
+    /// meanwhile stops being emptied (a folder whose ancestor was moved out, once the walk
+    /// climbs back to it).
+    private nonisolated static func remove(
+        _ name: [CChar], inTrash trash: Int32, identity trashIdentity: FolderIdentity, path: String,
+        _ deletion: inout Deletion
+    ) {
         struct Folder {
-            let descriptor: Int32, parent: Int32, name: [CChar], path: String
+            let identity: FolderIdentity, name: [CChar]
             let entries: [[CChar]]
             var next = 0
         }
-        var open: [Folder] = []
-        // Deletes anything but a folder at once; opens a folder so its entries go first.
-        func visit(_ name: [CChar], in parent: Int32, path: String) {
+        var chain: [Folder] = []        // from the top-level folder down to the one worked in
+        var current: Int32 = -1         // the descriptor of chain.last
+        defer { if current >= 0 { close(current) } }
+
+        func parentIdentity(of index: Int) -> FolderIdentity { index == 0 ? trashIdentity : chain[index - 1].identity }
+        // Built only for an error message: building it for every item would cost the depth.
+        func pathOf(_ name: [CChar]?, depth: Int) -> String {
+            ([path] + chain.prefix(depth).dropFirst().map { displayName($0.name) } + [name.map(displayName)].compactMap { $0 })
+                .joined(separator: "/")
+        }
+        // Stops emptying this entry: part of it left the Trash.
+        func leftTheTrash() {
+            deletion.error = deletion.error ?? FileActionError.leftTheTrash(chain.last.map { displayName($0.name) } ?? displayName(name))
+            chain.removeAll()
+        }
+        // Deletes anything but a folder at once; enters a folder so its entries go first.
+        func visit(_ name: [CChar]) {
+            let parent = current >= 0 ? current : trash
+            let itemPath = { chain.isEmpty ? path : pathOf(name, depth: chain.count) }
             var info = stat()
-            guard fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return deletion.fail(errno, path: path) }
+            guard fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return deletion.fail(errno, path: itemPath()) }
             guard info.st_mode & S_IFMT == S_IFDIR else {
-                if unlinkat(parent, name, 0) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: path) }
+                if unlinkat(parent, name, 0) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: itemPath()) }
                 return
             }
             let folder = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-            guard folder >= 0 else { return deletion.fail(errno, path: path) }
-            let entries = entryNames(of: folder)
-            if entries == nil { deletion.fail(errno, path: path) }
-            open.append(Folder(descriptor: folder, parent: parent, name: name, path: path, entries: entries ?? []))
+            guard folder >= 0 else { return deletion.fail(errno, path: itemPath()) }
+            guard let identity = FolderIdentity(of: folder) else {
+                close(folder)
+                return deletion.fail(EIO, path: itemPath())
+            }
+            let entries: [[CChar]]
+            switch entryNames(of: folder) {
+            case .success(let found): entries = found
+            case .failure(let failure):
+                entries = []
+                deletion.fail(failure.code, path: itemPath())
+            }
+            if current >= 0 { close(current) }
+            current = folder
+            chain.append(Folder(identity: identity, name: name, entries: entries))
         }
-        visit(name, in: parent, path: path)
-        while let top = open.indices.last {
-            if open[top].next < open[top].entries.count {
-                let child = open[top].entries[open[top].next]
-                open[top].next += 1
-                visit(child, in: open[top].descriptor, path: open[top].path + "/" + displayName(child))
+
+        visit(name)
+        while let last = chain.indices.last {
+            // Still in the same parent: moving it out of the Trash changes its parent.
+            guard FolderIdentity(of: current, relativePath: "..") == parentIdentity(of: last) else {
+                leftTheTrash()
                 continue
             }
-            let folder = open.removeLast()
-            close(folder.descriptor)
-            if unlinkat(folder.parent, folder.name, AT_REMOVEDIR) == 0 {
+            if chain[last].next < chain[last].entries.count {
+                let child = chain[last].entries[chain[last].next]
+                chain[last].next += 1
+                visit(child)
+                continue
+            }
+            // Done with its entries: go back up to its parent and delete it there.
+            let parent: Int32
+            if last == 0 {
+                parent = trash
+            } else {
+                parent = openat(current, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+                guard parent >= 0, FolderIdentity(of: parent) == chain[last - 1].identity else {
+                    if parent >= 0 { close(parent) }
+                    leftTheTrash()
+                    continue
+                }
+            }
+            close(current)
+            current = last == 0 ? -1 : parent
+            if unlinkat(parent, chain[last].name, AT_REMOVEDIR) == 0 {
                 deletion.deletedSomething = true
             } else {
                 let code = errno
                 // Not empty because something inside couldn't go: that failure is already recorded.
-                if code != ENOTEMPTY || deletion.error == nil { deletion.fail(code, path: folder.path) }
+                if code != ENOTEMPTY || deletion.error == nil { deletion.fail(code, path: pathOf(nil, depth: last + 1)) }
             }
+            chain.removeLast()
         }
     }
 
-    /// The raw names in an open folder (raw, so a name that isn't valid UTF-8 still matches).
-    private nonisolated static func entryNames(of folder: Int32) -> [[CChar]]? {
+    /// The raw names in an open folder (raw, so any name still matches), or the error that
+    /// stopped the listing: a read error never passes for the end of the folder.
+    private nonisolated static func entryNames(of folder: Int32) -> Result<[[CChar]], ListingError> {
         let copy = dup(folder)
-        guard copy >= 0 else { return nil }
+        guard copy >= 0 else { return .failure(ListingError(code: errno)) }
         guard let directory = fdopendir(copy) else {
+            let code = errno
             close(copy)
-            return nil
+            return .failure(ListingError(code: code))
         }
         defer { closedir(directory) }
         var names: [[CChar]] = []
-        while let entry = readdir(directory) {
+        while true {
+            errno = 0
+            guard let entry = readdir(directory) else {
+                let code = errno
+                return code == 0 ? .success(names) : .failure(ListingError(code: code))
+            }
             let length = Int(entry.pointee.d_namlen)
             var name = withUnsafeBytes(of: entry.pointee.d_name) { Array($0.bindMemory(to: CChar.self).prefix(length)) }
             if name == [46] || name == [46, 46] { continue }   // "." and ".."
             name.append(0)
             names.append(name)
         }
-        return names
     }
+
+    private nonisolated struct ListingError: Error { let code: Int32 }
 
     private nonisolated static func displayName(_ name: [CChar]) -> String {
         String(decoding: name.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)

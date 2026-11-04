@@ -548,6 +548,63 @@ struct SmartCleanTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path).isEmpty)
     }
 
+    @Test("A folder deeper than the open-file limit is emptied: descriptors don't pile up per level")
+    func deeperThanDescriptorLimit() async {
+        // In a child process whose open-file limit is lowered to 64, below the folder's depth.
+        await #expect(processExitsWith: .success) {
+            guard try await SmartCleanTests.emptyDeepTrash(depth: 200, descriptorLimit: 64) else { exit(1) }
+        }
+    }
+
+    /// Empties a Trash holding one folder `depth` levels deep, with at most `descriptorLimit`
+    /// open files; whether it ended empty.
+    static func emptyDeepTrash(depth: Int, descriptorLimit: rlim_t) async throws -> Bool {
+        let root = FileManager.default.temporaryDirectory.appending(path: "FileFinderTests-\(UUID())")
+        let trash = root.appending(path: ".Trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        var folder = open(trash.path, O_RDONLY | O_DIRECTORY)
+        for _ in 0..<depth {
+            guard mkdirat(folder, "d", 0o755) == 0 else { return false }
+            let child = openat(folder, "d", O_RDONLY | O_DIRECTORY)
+            close(folder)
+            folder = child
+        }
+        close(folder)
+        var limit = rlimit()
+        getrlimit(RLIMIT_NOFILE, &limit)
+        limit.rlim_cur = descriptorLimit
+        guard setrlimit(RLIMIT_NOFILE, &limit) == 0 else { return false }
+
+        let actions = FileActions.withTestTrash(
+            trash, clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
+        try await actions.emptyTrash(trash)
+        let isEmpty = try FileManager.default.contentsOfDirectory(atPath: trash.path).isEmpty
+        try? FileManager.default.removeItem(at: root)
+        return isEmpty
+    }
+
+    @Test("A folder moved out of the Trash while it is being emptied stops being emptied")
+    func movedOutWhileEmptying() async throws {
+        let count = 5000
+        for index in 0..<count { try dir.file(".Trash/Box/n\(index)", bytes: 1) }
+        let root = dir.url
+        let box = root.appending(path: ".Trash/Box")
+        let rescued = try dir.folder("Desktop").appending(path: "Box")
+        let mover = Thread {
+            let deadline = Date.now.addingTimeInterval(10)
+            while ((try? FileManager.default.contentsOfDirectory(atPath: box.path).count) ?? 0) > count - 50,
+                  Date.now < deadline {}
+            try? FileManager.default.moveItem(at: box, to: rescued)
+        }
+        mover.start()
+
+        await #expect(throws: (any Error).self) { try await actions.emptyTrash(root.appending(path: ".Trash")) }
+        while mover.isExecuting { try await Task.sleep(for: .milliseconds(5)) }
+
+        let left = try FileManager.default.contentsOfDirectory(atPath: rescued.path).count
+        #expect(left > count / 2)   // only what went before the move is gone
+    }
+
     @Test("A folder in the Trash that loses nothing keeps the undo steps")
     func untouchedFolderKeepsUndo() async throws {
         let locked = try lockedTrashFile("Box/m.txt")

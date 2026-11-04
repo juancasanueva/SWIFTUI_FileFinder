@@ -50,6 +50,10 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T18 S6 — L26 R3-001/R3-004: FileActions owns one Trash folder (injectable, real ~/.Trash by default); only paths inside it count as the Trash, Empty Trash empties only it, and tests trash into their own Trash — inline — (this commit) (RED by mutation: the old name rule fails the lookalike test with 3 issues; GREEN 321 ×2; one TransferProgress cancel flake seen once, not reproduced); Risk item 3 (shared FileActions trash plumbing) → verifier
 - [x] T19 S6 — L26 R3-002: undo steps that act inside the Trash (a rename in it, a copy or New Folder into it) are dropped when it is emptied — inline — (this commit) (RED→GREEN: 3 issues, then 323)
 - [x] T20 S6 — L14 R1-001, L29 R4-001/R3-001/R3-002/R3-003: Empty Trash deletes relative to the opened Trash folder (no link followed at any depth), knows exactly whether anything was deleted, drops Undo after emptying an already-empty Trash; committed tests for every outcome — inline — (this commit) (RED→GREEN: 3 issues, then 326 ×3; mid-way refusal and link-inside tests pass at the base too: pins); Risk item 1 (permanent deletion) → verifier
+- [x] T21 S6 — L34 R4-001/R3-001: Empty Trash keeps a constant number of open descriptors at any depth (each folder reached again from the Trash by name) — inline — (this commit) (RED on main: exit test with a 64-descriptor limit and 200 levels fails; GREEN)
+- [x] T22 S6 — L34 R1-001: a folder moved out of the Trash while it is being emptied stops being emptied — inline — (this commit) (RED on main: no error, the moved folder emptied; GREEN)
+- [x] T23 S6 — L34 R3-002: listing failures report their own error code; a read error never looks like the end of a folder — inline — (this commit) (no deterministic RED: a readdir or close failure cannot be caused in a test; covered by review)
+- [ ] T24 S2 — L34 R3-003: a test pins that an older scan never resets the storage overview (injectable capacity) — inline
 
 ## Log
 
@@ -112,3 +116,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R4-001/R3-001 One open descriptor per folder level: a folder nested deeper than the free descriptor budget (soft limit 256) fails with an error and its deep part stays; the base's removeItem could go deeper.
   - R3-002 entryNames' failure path may overwrite errno before it is read, so the reported code can be wrong; a readdir error looks like the end of the listing.
   - R3-003 No deterministic test pins the storage generation guard (as noted in T17).
+- L35 2026-11-04 User: "fix the remaining Smart Clean review notes". Branch `fix/smart-clean-review-notes` from `main` (08b3a32). The L34 notes: R1-001, R4-001/R3-001, R3-002, R3-003, planned as T21–T24, inline (one area, sequential). T21+T22 share one rewrite of the deletion walk.
