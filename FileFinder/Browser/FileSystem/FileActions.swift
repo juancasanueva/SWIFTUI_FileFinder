@@ -159,19 +159,23 @@ final class FileActions {
     /// The Trash that `trasher` fills and Empty Trash empties. Only paths inside it count as
     /// the Trash; other folders named ".Trash" and other volumes' ".Trashes" don't.
     let trashFolder: URL
+    /// The listing and parent checks Empty Trash makes; tests make them fail or act in between.
+    @ObservationIgnored private let trashWalk: TrashWalk
 
     init(
         clipboard: FileClipboard = .shared,
         copier: @escaping Copier = { try FileCopier.copy(from: $0, to: $1, progress: $2, shouldCancel: $3) },
         measureSizes: @escaping SizeMeasurer = { await FileActions.sizes(of: $0) },
         trashFolder: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".Trash"),
-        trasher: @escaping Trasher = FileActions.systemTrasher
+        trasher: @escaping Trasher = FileActions.systemTrasher,
+        trashWalk: TrashWalk = .system
     ) {
         self.clipboard = clipboard
         self.copier = copier
         self.measureSizes = measureSizes
         self.trashFolder = trashFolder.canonical
         self.trasher = trasher
+        self.trashWalk = trashWalk
     }
 
     /// The system's Move to Trash.
@@ -372,7 +376,7 @@ final class FileActions {
         // Checked inside the queued work, right before deleting: the Trash may change while
         // earlier operations run.
         try await serialized {
-            let result = await Self.performEmptyTrash(trash)
+            let result = await Self.performEmptyTrash(trash, walk: self.trashWalk)
             // A Trash already empty (emptied in Finder) also leaves those steps nothing to restore.
             if result.deletedSomething || result.error == nil { self.dropTrashUndo() }
             if let error = result.error { throw error }
@@ -402,7 +406,7 @@ final class FileActions {
     /// a link swapped in for the Trash, or for a folder inside it, is never followed. Goes on
     /// past items it can't delete, and stops when the Trash's path no longer leads to it.
     @concurrent private nonisolated static func performEmptyTrash(
-        _ trash: URL
+        _ trash: URL, walk: TrashWalk
     ) async -> (deletedSomething: Bool, error: (any Error)?) {
         guard let identity = realFolderIdentity(trash) else { return (false, FileActionError.notTheTrash) }
         let folder = open(trash.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -415,7 +419,7 @@ final class FileActions {
             return (false, FileActionError.notTheTrash)
         }
         let names: [[CChar]]
-        switch entryNames(of: folder) {
+        switch walk.listEntries(folder) {
         case .success(let found): names = found
         case .failure(let failure): return (false, removalError(failure.code, path: trash.path))
         }
@@ -425,23 +429,39 @@ final class FileActions {
             guard let current = realFolderIdentity(trash), current == identity else {
                 return (deletion.deletedSomething, FileActionError.notTheTrash)
             }
-            remove(name, inTrash: folder, identity: opened, path: trash.path + "/" + displayName(name), &deletion)
+            remove(name, inTrash: folder, identity: opened, path: trash.path + "/" + displayName(name), walk: walk, &deletion)
         }
         return (deletion.deletedSomething, deletion.error)
     }
 
     /// A folder's device and inode.
-    private nonisolated struct FolderIdentity: Equatable {
+    nonisolated struct FolderIdentity: Equatable, Sendable {
         let device: dev_t, inode: ino_t
 
         init(_ identity: (dev_t, ino_t)) { (device, inode) = identity }
 
-        init?(of descriptor: Int32, relativePath: String? = nil) {
+        init?(of descriptor: Int32) {
             var info = stat()
-            let found = relativePath.map { fstatat(descriptor, $0, &info, AT_SYMLINK_NOFOLLOW) } ?? fstat(descriptor, &info)
-            guard found == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+            guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
             (device, inode) = (info.st_dev, info.st_ino)
         }
+
+        /// The identity of the open folder's parent (".."), or why it can't be read.
+        static func parent(of descriptor: Int32) -> Result<FolderIdentity, SystemCallError> {
+            var info = stat()
+            guard fstatat(descriptor, "..", &info, AT_SYMLINK_NOFOLLOW) == 0 else { return .failure(SystemCallError(code: errno)) }
+            guard info.st_mode & S_IFMT == S_IFDIR else { return .failure(SystemCallError(code: ENOTDIR)) }
+            return .success(FolderIdentity((info.st_dev, info.st_ino)))
+        }
+    }
+
+    /// The calls Empty Trash's walk makes besides deleting: listing an open folder and reading
+    /// its parent's identity.
+    nonisolated struct TrashWalk: Sendable {
+        var listEntries: @Sendable (_ folder: Int32) -> Result<[[CChar]], SystemCallError>
+        var parentOf: @Sendable (_ folder: Int32) -> Result<FolderIdentity, SystemCallError>
+
+        static let system = TrashWalk(listEntries: FileActions.entryNames(of:), parentOf: FolderIdentity.parent(of:))
     }
 
     /// Deletes the Trash's top-level entry `name`; a folder's contents first. Links are deleted,
@@ -452,7 +472,7 @@ final class FileActions {
     /// climbs back to that ancestor.
     private nonisolated static func remove(
         _ name: [CChar], inTrash trash: Int32, identity trashIdentity: FolderIdentity, path: String,
-        _ deletion: inout Deletion
+        walk: TrashWalk, _ deletion: inout Deletion
     ) {
         struct Folder {
             let identity: FolderIdentity, name: [CChar]
@@ -491,19 +511,21 @@ final class FileActions {
                 return deletion.fail(EIO, path: itemPath())
             }
             let entries: [[CChar]]
-            switch entryNames(of: folder) {
+            switch walk.listEntries(folder) {
             case .success(let found): entries = found
             case .failure(let failure):
                 entries = []
                 deletion.fail(failure.code, path: itemPath())
             }
-            // Without search permission nothing in it can be reached (nor its ".."): don't enter
-            // it. An empty one can still go; a full one stays, with its first entry's error.
-            var parentInfo = stat()
-            if fstatat(folder, "..", &parentInfo, AT_SYMLINK_NOFOLLOW) != 0, errno == EACCES {
+            // Its ".." must be readable to check, before every deletion, that it wasn't moved. If
+            // it isn't (no search permission, say), don't enter it: an empty one can still go; a
+            // full one stays, with that failure (for no permission, on its first entry, which is
+            // what can't be reached).
+            if case .failure(let failure) = walk.parentOf(folder) {
                 close(folder)
                 if let first = entries.first {
-                    return deletion.fail(EACCES, path: itemPath() + "/" + displayName(first))
+                    let path = failure.code == EACCES ? itemPath() + "/" + displayName(first) : itemPath()
+                    return deletion.fail(failure.code, path: path)
                 }
                 if unlinkat(parent, name, AT_REMOVEDIR) == 0 { deletion.deletedSomething = true } else { deletion.fail(errno, path: itemPath()) }
                 return
@@ -515,10 +537,18 @@ final class FileActions {
 
         visit(name)
         while let last = chain.indices.last {
-            // Still in the same parent: moving it out of the Trash changes its parent.
-            guard FolderIdentity(of: current, relativePath: "..") == parentIdentity(of: last) else {
+            // Still in the same parent: moving it out of the Trash changes its parent. A parent
+            // that can't be read is reported as itself, never as a move.
+            switch walk.parentOf(current) {
+            case .failure(let failure):
+                deletion.fail(failure.code == ENOENT ? EIO : failure.code, path: pathOf(nil, depth: last + 1))
+                chain.removeAll()
+                continue
+            case .success(let found) where found != parentIdentity(of: last):
                 stopMoved()
                 continue
+            case .success:
+                break
             }
             if chain[last].next < chain[last].entries.count {
                 let child = chain[last].entries[chain[last].next]
@@ -553,13 +583,13 @@ final class FileActions {
 
     /// The raw names in an open folder (raw, so any name still matches), or the error that
     /// stopped the listing: a read error never passes for the end of the folder.
-    private nonisolated static func entryNames(of folder: Int32) -> Result<[[CChar]], ListingError> {
+    nonisolated static func entryNames(of folder: Int32) -> Result<[[CChar]], SystemCallError> {
         let copy = dup(folder)
-        guard copy >= 0 else { return .failure(ListingError(code: errno)) }
+        guard copy >= 0 else { return .failure(SystemCallError(code: errno)) }
         guard let directory = fdopendir(copy) else {
             let code = errno
             close(copy)
-            return .failure(ListingError(code: code))
+            return .failure(SystemCallError(code: code))
         }
         defer { closedir(directory) }
         var names: [[CChar]] = []
@@ -567,7 +597,7 @@ final class FileActions {
             errno = 0
             guard let entry = readdir(directory) else {
                 let code = errno
-                return code == 0 ? .success(names) : .failure(ListingError(code: code))
+                return code == 0 ? .success(names) : .failure(SystemCallError(code: code))
             }
             let length = Int(entry.pointee.d_namlen)
             var name = withUnsafeBytes(of: entry.pointee.d_name) { Array($0.bindMemory(to: CChar.self).prefix(length)) }
@@ -577,7 +607,8 @@ final class FileActions {
         }
     }
 
-    private nonisolated struct ListingError: Error { let code: Int32 }
+    /// A failed system call's error code.
+    nonisolated struct SystemCallError: Error, Sendable { let code: Int32 }
 
     private nonisolated static func displayName(_ name: [CChar]) -> String {
         String(decoding: name.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)

@@ -54,6 +54,9 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T22 S6 — L34 R1-001: a folder moved out of the Trash while it is being emptied stops being emptied — inline — (this commit) (RED on main: no error, the moved folder emptied; GREEN)
 - [x] T23 S6 — L34 R3-002: listing failures report their own error code; a read error never looks like the end of a folder — inline — (this commit) (no deterministic RED: a readdir or close failure cannot be caused in a test; covered by review)
 - [x] T24 S2 — L34 R3-003: a test pins that an older scan never resets the storage overview (injectable capacity) — inline — (this commit) (RED by mutation: without the guard the test fails; GREEN; full suite 330, one known TransferProgress cancel flake in 1 of 3 runs)
+- [x] T25 S6 — L39 R3-002: any failure of a folder's ".." check is reported as that failure (an empty folder is still deleted), never as "was moved" — inline — (this commit) (RED by mutation: the old EACCES-only handling fails the test with 2 issues; GREEN 333 ×2)
+- [x] T26 S6 — L39 R3-003: the walk's listing and ".." check are injectable (TrashWalk), and a test pins a listing failure's own error — inline — (this commit) (new coverage: listing failures already kept their code since T23, so no RED)
+- [x] T27 S6 — L39 R4-001/R3-001: the moved-out test moves the folder from inside the walk at a fixed point, so it no longer depends on thread timing — inline — (this commit) (test only; exact count, 20 iterations green)
 
 ## Log
 
@@ -124,3 +127,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R4-001/R3-001 movedOutWhileEmptying depends on thread timing (the move can land after everything is deleted, or after its 10 s deadline on a slow host).
   - R3-002 Only EACCES from the ".." check of a newly opened folder is handled; any other failure there still ends as the false "was moved" message.
   - R3-003 The listing-failure path (and the readdir errno distinction) has no test; an injectable listing seam would allow one.
+- L40 2026-11-04 User: "fix the remaining Smart Clean review notes". Branch `fix/smart-clean-walk-notes` from `main` (904c837). The L39 notes R3-002, R3-003, R4-001/R3-001, planned as T25–T27, inline (one seam serves all three).

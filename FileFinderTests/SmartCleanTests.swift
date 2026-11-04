@@ -585,24 +585,62 @@ struct SmartCleanTests {
 
     @Test("A folder moved out of the Trash while it is being emptied stops being emptied")
     func movedOutWhileEmptying() async throws {
-        let count = 5000
+        let count = 200
         for index in 0..<count { try dir.file(".Trash/Box/n\(index)", bytes: 1) }
-        let root = dir.url
-        let box = root.appending(path: ".Trash/Box")
+        let box = dir.url.appending(path: ".Trash/Box")
         let rescued = try dir.folder("Desktop").appending(path: "Box")
-        let mover = Thread {
-            let deadline = Date.now.addingTimeInterval(10)
-            while ((try? FileManager.default.contentsOfDirectory(atPath: box.path).count) ?? 0) > count - 50,
-                  Date.now < deadline {}
-            try? FileManager.default.moveItem(at: box, to: rescued)
+        let boxInode = inode(of: box)
+        let checks = Counter()
+        // Moved right before Box's 50th parent check: once on entering it, then once before
+        // each entry, so after 48 of its files went.
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, boxInode), checks.next() == 50 { try? FileManager.default.moveItem(at: box, to: rescued) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect(throws: FileActionError.movedWhileEmptying("Box")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.path).count == count - 48)
+    }
+
+    @Test("A folder whose parent can't be read is reported as that failure, never as moved")
+    func unreadableParentNotMoved() async throws {
+        try dir.file(".Trash/Box/a.txt", bytes: 1)
+        try dir.folder(".Trash/Empty")
+        let failing = [inode(of: dir.url.appending(path: ".Trash/Box")), inode(of: dir.url.appending(path: ".Trash/Empty"))]
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            failing.contains { isFolder(folder, $0) } ? .failure(FileActions.SystemCallError(code: EIO)) : FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Box” couldn’t be removed."
         }
-        mover.start()
 
-        await #expect(throws: (any Error).self) { try await actions.emptyTrash(root.appending(path: ".Trash")) }
-        while mover.isExecuting { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(exists(".Trash/Box/a.txt"))
+        #expect(!exists(".Trash/Empty"))   // nothing in it to reach: it still goes
+    }
 
-        let left = try FileManager.default.contentsOfDirectory(atPath: rescued.path).count
-        #expect(left > count / 2)   // only what went before the move is gone
+    @Test("A folder whose listing fails is kept with that failure")
+    func listingFailureReported() async throws {
+        try dir.file(".Trash/Box/a.txt", bytes: 1)
+        try dir.file(".Trash/other.txt", bytes: 1)
+        let boxInode = inode(of: dir.url.appending(path: ".Trash/Box"))
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: { folder in
+            isFolder(folder, boxInode) ? .failure(FileActions.SystemCallError(code: EIO)) : FileActions.TrashWalk.system.listEntries(folder)
+        }, parentOf: FileActions.TrashWalk.system.parentOf))
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Box” couldn’t be removed."
+        }
+
+        #expect(exists(".Trash/Box/a.txt") && !exists(".Trash/other.txt"))
+    }
+
+    /// FileActions on the test Trash whose Empty Trash makes `walk`'s calls.
+    private func actions(walk: FileActions.TrashWalk) -> FileActions {
+        FileActions.withTestTrash(
+            dir.url.appending(path: ".Trash"),
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))), walk: walk)
     }
 
     @Test("Folders without search permission: an empty one is deleted, a full one is kept with a permission error")
@@ -984,11 +1022,31 @@ struct SlowScanner: SuggestionScanner {
 
 extension FileActions {
     /// FileActions whose Move to Trash fills `trash` (a test home's), never the real Trash.
-    static func withTestTrash(_ trash: URL, clipboard: FileClipboard) -> FileActions {
+    static func withTestTrash(_ trash: URL, clipboard: FileClipboard, walk: TrashWalk = .system) -> FileActions {
         FileActions(clipboard: clipboard, trashFolder: trash, trasher: { url in
             let destination = FileActions.uniqueDestination(for: url, in: trash, copyStyle: false)
             try FileManager.default.moveItem(at: url, to: destination)
             return destination
-        })
+        }, trashWalk: walk)
     }
+}
+
+/// A file's inode.
+func inode(of url: URL) -> ino_t {
+    var info = stat()
+    lstat(url.path, &info)
+    return info.st_ino
+}
+
+/// Whether the open descriptor is the file with `inode`.
+func isFolder(_ descriptor: Int32, _ inode: ino_t) -> Bool {
+    var info = stat()
+    return fstat(descriptor, &info) == 0 && info.st_ino == inode
+}
+
+/// A thread-safe count, for hooks called from the walk's thread.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func next() -> Int { lock.withLock { value += 1; return value } }
 }
