@@ -65,7 +65,7 @@ struct PathBar: View {
     }
 
     private var editor: some View {
-        TextField("Go to folder", text: $text)
+        TextField("Go to folder, or type code . to open it in VS Code", text: $text)
             .textFieldStyle(.roundedBorder)
             .font(.body.monospaced())
             .focused($isFocused)
@@ -82,12 +82,8 @@ struct PathBar: View {
                 return .handled
             }
             .onSubmit {
-                guard let folder = PathInput.resolve(text, relativeTo: model.currentFolder) else {
-                    NSSound.beep()
-                    return
-                }
-                model.isEditingPath = false
-                model.navigate(to: folder)
+                // A folder path, or a command such as `code .` (see `PathBarCommand`).
+                if !model.submitPath(text) { NSSound.beep() }
             }
             .onChange(of: isFocused) { _, focused in
                 if !focused { model.isEditingPath = false }

@@ -729,6 +729,31 @@ final class BrowserModel {
     func openInTerminal(_ folder: URL? = nil) { openDeveloperApp(.terminal, folder) }
     func openInEditor(_ folder: URL? = nil) { openDeveloperApp(.editor, folder) }
 
+    /// What Return does in the path bar: go to a typed folder, or run a command such as
+    /// `code .` (a folder with a command's name wins). Returns false when the text is neither.
+    func submitPath(_ text: String) -> Bool {
+        if let folder = PathInput.resolve(text, relativeTo: currentFolder) {
+            isEditingPath = false
+            navigate(to: folder)
+            return true
+        }
+        guard let base = developerFolder,
+              let command = PathBarCommand.parse(text, relativeTo: base) else { return false }
+        isEditingPath = false
+        do {
+            switch command.target {
+            case .preferredTerminal:
+                try developerTools.openInPreferred(command.folder, role: .terminal)
+            case .app(let id):
+                guard let app = (DeveloperApp.editors + DeveloperApp.terminals).first(where: { $0.id == id }) else { return false }
+                try developerTools.open(command.folder, in: app)
+            }
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+        return true
+    }
+
     private func openDeveloperApp(_ role: DeveloperApp.Role, _ folder: URL?) {
         guard let folder = folder ?? developerFolder else { return }
         do {

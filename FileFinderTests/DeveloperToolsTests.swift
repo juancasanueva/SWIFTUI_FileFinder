@@ -142,3 +142,83 @@ struct DeveloperToolsTests {
         #expect(opened.requests.isEmpty)
     }
 }
+
+@MainActor
+@Suite("Path bar commands")
+struct PathBarCommandTests {
+    let dir: TemporaryDirectory
+    let defaults: UserDefaults
+    private let opened = DeveloperToolsTests.Recorder()
+
+    init() throws {
+        dir = try TemporaryDirectory()
+        defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+    }
+
+    private func makePane(_ installed: Set<String>) -> BrowserModel {
+        let recorder = opened
+        let tools = DeveloperTools(
+            defaults: defaults,
+            locate: { id in installed.contains(id) ? URL(filePath: "/Applications/\(id).app") : nil },
+            open: { recorder.requests.append($0) })
+        let store = WorkspaceStore(fileURL: FileManager.default.temporaryDirectory
+            .appending(path: "FileFinderTests-\(UUID())/workspaces.json"))
+        return BrowserModel(start: dir.url, defaults: defaults, workspaces: store, developerTools: tools)
+    }
+
+    @Test("The reference commands name their apps", arguments: [
+        ("code .", PathBarCommand.Target.app("vscode")), ("cursor .", .app("cursor")), ("xed .", .app("xcode")),
+        ("zed", .app("zed")), ("warp", .app("warp")), ("terminal", .preferredTerminal), ("  Code  . ", .app("vscode")),
+    ])
+    func parse(text: String, target: PathBarCommand.Target) throws {
+        let command = try #require(PathBarCommand.parse(text, relativeTo: dir.url))
+        #expect(command.target == target)
+        #expect(command.folder == dir.url.canonical)
+    }
+
+    @Test("A command can take a folder path; anything else isn't a command")
+    func parsePaths() throws {
+        let sub = try dir.folder("api")
+        #expect(PathBarCommand.parse("code api", relativeTo: dir.url)?.folder == sub.canonical)
+        #expect(PathBarCommand.parse("zed \(sub.path)", relativeTo: dir.url)?.folder == sub.canonical)
+        #expect(PathBarCommand.parse("code missing", relativeTo: dir.url) == nil)
+        #expect(PathBarCommand.parse("vim .", relativeTo: dir.url) == nil)
+        #expect(PathBarCommand.parse("", relativeTo: dir.url) == nil)
+    }
+
+    @Test("Typing `code .` opens the folder in VS Code; `terminal` uses the Settings terminal")
+    func runs() async throws {
+        let pane = makePane(["com.microsoft.VSCode", "com.googlecode.iterm2"])
+        let sub = try dir.folder("api")
+
+        #expect(pane.submitPath("code ."))
+        #expect(pane.submitPath("terminal api"))
+
+        #expect(opened.requests == [
+            .folder(dir.url.canonical, app: URL(filePath: "/Applications/com.microsoft.VSCode.app")),
+            .folder(sub.canonical, app: URL(filePath: "/Applications/com.googlecode.iterm2.app")),
+        ])
+        #expect(pane.currentFolder == dir.url.canonical)
+    }
+
+    @Test("A folder with a command's name is opened as a folder")
+    func pathWins() throws {
+        let zed = try dir.folder("zed")
+        let pane = makePane(["dev.zed.Zed"])
+
+        #expect(pane.submitPath("zed"))
+
+        #expect(pane.currentFolder == zed.canonical)
+        #expect(opened.requests.isEmpty)
+    }
+
+    @Test("A command for an app that isn't installed names it; unknown text is rejected")
+    func failures() {
+        let pane = makePane([])
+
+        #expect(pane.submitPath("cursor ."))
+        #expect(pane.alertMessage == "“Cursor” isn't installed.")
+        #expect(!pane.submitPath("vim ."))
+        #expect(opened.requests.isEmpty)
+    }
+}
