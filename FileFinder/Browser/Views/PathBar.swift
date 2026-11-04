@@ -57,6 +57,10 @@ struct PathBar: View {
                 .onTapGesture { model.isEditingPath = true }
                 .accessibilityLabel("Type a path")
                 .accessibilityAddTraits(.isButton)
+
+            if let git = model.gitStatus {
+                GitBadge(status: git)
+            }
         }
     }
 
@@ -88,5 +92,37 @@ struct PathBar: View {
             .onChange(of: isFocused) { _, focused in
                 if !focused { model.isEditingPath = false }
             }
+    }
+}
+
+/// "⎇ main · 3 changes" for a folder inside a git work tree.
+private struct GitBadge: View {
+    let status: GitStatus
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+            Text(status.branch)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let changes = status.changes {
+                Text("·").foregroundStyle(.tertiary)
+                Text(changes == 0 ? "clean" : changes == 1 ? "1 change" : "\(changes) changes")
+                    .foregroundStyle(changes == 0 ? Color.secondary : Color.orange)
+                    .monospacedDigit()
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(.quaternary, in: .capsule)
+        .fixedSize()
+        .help(help)
+    }
+
+    private var help: String {
+        let kind = status.isDetached ? "Detached at \(status.branch)" : "Branch \(status.branch)"
+        return "\(kind) in \(status.root.path). Read-only: nothing is fetched, pulled or changed."
     }
 }

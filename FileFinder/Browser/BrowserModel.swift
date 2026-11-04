@@ -97,6 +97,12 @@ final class BrowserModel {
     /// Workspace entries whose items are gone.
     private(set) var missingEntries: [WorkspaceEntry] = []
     @ObservationIgnored private var entryIDs: [URL: WorkspaceEntry.ID] = [:]
+    /// Branch and uncommitted changes when the folder is in a git work tree.
+    private(set) var gitStatus: GitStatus?
+    /// Bumped per git read, so a slow, older read never overwrites a newer one.
+    @ObservationIgnored private var gitGeneration = 0
+    /// Something changed below the folder (a file edited, a commit made): read git again.
+    @ObservationIgnored private var gitNeedsRefresh = false
 
     // MARK: Interaction state
 
@@ -277,6 +283,9 @@ final class BrowserModel {
         missingEntries = []
         entryIDs = [:]
         tidyPreview = nil
+        gitStatus = nil
+        gitGeneration += 1
+        gitNeedsRefresh = false
         selection = []
         renamingURL = nil
         quickLookURL = nil
@@ -340,6 +349,7 @@ final class BrowserModel {
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(2))
                         await self.refreshDeeplyChangedFolders(in: folder)
+                        if self.gitNeedsRefresh, folder == self.currentFolder { await self.refreshGitStatus() }
                     }
                 }
             }
@@ -374,6 +384,7 @@ final class BrowserModel {
             applySort()
             selection.formIntersection(listing.map(\.url))
             availableBytes = await Self.freeSpace(at: folder)
+            await refreshGitStatus()
         } catch {
             guard folder == currentFolder, hidden == showHidden else { return }
             rawItems = []
@@ -449,6 +460,26 @@ final class BrowserModel {
     func noteDeepChanges(_ paths: [String], in folder: URL) {
         guard folder == currentFolder else { return }
         deeplyChanged.formUnion(SubtreeWatcher.changedChildren(paths: paths, in: folder))
+        if gitStatus != nil { gitNeedsRefresh = true }
+    }
+
+    /// Reads the branch and change count again. Read-only (see `GitStatusReader`).
+    func refreshGitStatus() async {
+        gitGeneration += 1
+        let generation = gitGeneration
+        gitNeedsRefresh = false
+        guard !isShowingWorkspace else {
+            gitStatus = nil
+            return
+        }
+        let folder = currentFolder
+        let status = await Self.readGitStatus(folder)
+        guard generation == gitGeneration, folder == currentFolder, !isShowingWorkspace else { return }
+        gitStatus = status
+    }
+
+    @concurrent private nonisolated static func readGitStatus(_ folder: URL) async -> GitStatus? {
+        GitStatusReader.status(of: folder, git: GitStatusReader.gitExecutable())
     }
 
     /// Re-measures deeply changed sub-folders, all pending changes at once, each folder only when
