@@ -23,7 +23,7 @@ Quoted from the reference site (fileosmac.com):
 - [x] T3 S4 — path bar commands — inline — 3fde66e (RED→GREEN, 210/210; app launches)
 - [x] T4 S1 — git status must never run commands from the repository's config (core.fsmonitor, filter drivers, submodules, lazy fetch) — inline — d5a760e + correction 33a8afb (behavioral RED → GREEN, 216/216); Risk: item 2; verifier recheck B1–B4 FIXED; native review approved + acknowledged (review-41b976e8b59edc82)
 
-- [ ] T5 S1 — refuse status on git older than 2.44 (ignores GIT_NO_LAZY_FETCH) — inline
+- [x] T5 S1 — refuse status on git older than 2.44 (ignores GIT_NO_LAZY_FETCH) — inline — 4b94959 (behavioral RED → GREEN, 222/222); Risk: item 2; verifier PASS; native review approved + acknowledged (review-b7b9b8d53b7740ca)
 
 Route evidence: T3 depends on T2; T1 touches PathBar like T3; no Writer trigger.
 
@@ -39,3 +39,4 @@ Route evidence: T3 depends on T2; T1 touches PathBar like T3; no Writer trigger.
 - L8 Verifier recheck (limited to B1–B4): all FIXED; A1 worst case now 5.4 s, fails closed. Scratch removed.
 - L9 Native review (base 3fde66e, committed-only, escalated item 2; lenses risk/resilience/reliability; consent granted): approved, acknowledged, authority burned. Non-blocking advisories (follow-ups, not done): R1/R3/R4 GIT_NO_LAZY_FETCH is ignored by git < 2.44 (older Apple CLT/Xcode 2.39 line) — fix by refusing status on old git or failing closed when a promisor remote/partialClone is configured (installed gits here are 2.54/2.56); R3/R4 blanking every filter (incl. the user's global LFS) can over-count stat-dirty LFS files.
 - L10 (2026-11-04) User: "yes, fix the older git hole" → T5: run `git --version` first (reads no repo config), cache per resolved binary, skip status (changes nil, branch still shown) below 2.44.
+- L11 T5 verifier: S1/T5 PASS, no blockers (gate is the only path to config/status; stderr-only, non-zero exit, hanging --version all fail closed; 32 concurrent refreshes fine). Native review (base eb870d4, escalated item 2, lenses risk/resilience/reliability, consent granted): approved, acknowledged. Follow-ups (advisories, not done): the version cache is keyed by the resolved path only, so an in-place downgrade of the same binary while the app runs keeps a cached "recent" (needs local admin + a partial clone missing an object) — key by inode/mtime/size; `2.44.0.rc0` counts as 2.44; tests don't cover stderr-only output / an uncached failed --version; a persistent --version failure re-spawns per refresh (bounded by the deadline). Scratch removed.
