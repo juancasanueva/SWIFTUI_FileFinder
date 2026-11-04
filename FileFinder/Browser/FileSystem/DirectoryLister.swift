@@ -4,7 +4,7 @@ import Foundation
 nonisolated enum DirectoryLister {
     static let resourceKeys: [URLResourceKey] = [
         .nameKey, .isDirectoryKey, .isPackageKey, .isHiddenKey, .fileSizeKey,
-        .contentModificationDateKey, .creationDateKey, .localizedTypeDescriptionKey,
+        .contentModificationDateKey, .creationDateKey, .localizedTypeDescriptionKey, .addedToDirectoryDateKey,
     ]
 
     static func contents(of folder: URL, showHidden: Bool) throws -> [FileItem] {
@@ -28,7 +28,8 @@ nonisolated enum DirectoryLister {
             size: isDirectory ? nil : Int64(values.fileSize ?? 0),
             modificationDate: values.contentModificationDate,
             creationDate: values.creationDate,
-            kind: values.localizedTypeDescription ?? (isDirectory ? "Folder" : "Document")
+            kind: values.localizedTypeDescription ?? (isDirectory ? "Folder" : "Document"),
+            dateAdded: values.addedToDirectoryDate
         )
     }
 }

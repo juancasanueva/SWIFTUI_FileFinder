@@ -63,12 +63,16 @@ final class BrowserModel {
         static let viewMode = "viewMode"
         static let iconSize = "iconSize"
         static let showPreview = "showPreview"
+        static let groupBy = "groupBy"
     }
 
     // MARK: Location and contents
 
     private(set) var currentFolder: URL
+    /// Shown items in display order: group by group when grouped.
     private(set) var items: [FileItem] = []
+    /// The shown groups; empty when not grouping.
+    private(set) var groups: [ItemGroup] = []
     private(set) var folderStats: [URL: FolderStats] = [:]
     /// Folders whose size couldn't be measured (for example, unreadable ones).
     private(set) var unmeasurableFolders: Set<URL> = []
@@ -123,6 +127,13 @@ final class BrowserModel {
     var viewMode: BrowserViewMode { didSet { defaults.set(viewMode.rawValue, forKey: Key.viewMode) } }
     var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
     var showPreview: Bool { didSet { defaults.set(showPreview, forKey: Key.showPreview) } }
+    /// View-only: grouping never moves anything on disk.
+    var groupBy: GroupBy {
+        didSet {
+            defaults.set(groupBy.rawValue, forKey: Key.groupBy)
+            applySort()
+        }
+    }
 
     let actions: FileActions
     let workspaces: WorkspaceStore
@@ -152,6 +163,7 @@ final class BrowserModel {
         viewMode = BrowserViewMode(rawValue: defaults.string(forKey: Key.viewMode) ?? "") ?? .list
         iconSize = IconSize(rawValue: defaults.object(forKey: Key.iconSize) as? Int ?? 1) ?? .medium
         showPreview = defaults.bool(forKey: Key.showPreview)
+        groupBy = GroupBy(rawValue: defaults.string(forKey: Key.groupBy) ?? "") ?? .none
         actions.onBackgroundError = { [weak self] message in self?.alertMessage = message }
     }
 
@@ -518,12 +530,17 @@ final class BrowserModel {
         return remeasure
     }
 
+    /// Sorts the listing, then groups it; `items` follows the shown order so ⇧-ranges and
+    /// arrow keys match the screen.
     private func applySort() {
+        let sorted: [FileItem]
         if let first = sortOrder.first, first.keyPath == \FileItem.name {
-            items = rawItems.sorted(using: FinderOrder(order: first.order))
+            sorted = rawItems.sorted(using: FinderOrder(order: first.order))
         } else {
-            items = rawItems.sorted(using: sortOrder)
+            sorted = rawItems.sorted(using: sortOrder)
         }
+        groups = ItemGrouping.groups(sorted, by: groupBy)
+        items = groups.isEmpty ? sorted : groups.flatMap(\.items)
     }
 
     @concurrent private nonisolated static func list(_ folder: URL, showHidden: Bool) async throws -> [FileItem] {
@@ -559,10 +576,11 @@ final class BrowserModel {
 
     /// Card-view arrow keys: ←/→ step one item (wrapping across rows), ↑/↓ one row of `columns`.
     /// Stops at the edges. `extending` (⇧) selects the range from where the selection started.
+    /// When grouped, each group starts a new row; ↑/↓ into another group lands on the nearest
+    /// card of its row, while inside a group a row with no card below doesn't move.
     func moveSelection(_ move: SelectionMove, columns: Int, extending: Bool) {
         guard !items.isEmpty else { return }
         let urls = items.map(\.url)
-        let columns = max(1, columns)
         let current = selectionCursor.flatMap { selection.contains($0) ? urls.firstIndex(of: $0) : nil }
             ?? urls.firstIndex(where: selection.contains)
 
@@ -571,8 +589,7 @@ final class BrowserModel {
             switch move {
             case .left: target = max(0, index - 1)
             case .right: target = min(urls.count - 1, index + 1)
-            case .up: target = index - columns >= 0 ? index - columns : index
-            case .down: target = index + columns < urls.count ? index + columns : index
+            case .up, .down: target = verticalTarget(from: index, up: move == .up, columns: max(1, columns))
             }
         } else {
             target = (move == .right || move == .down) ? 0 : urls.count - 1
@@ -586,6 +603,27 @@ final class BrowserModel {
             selectionAnchor = targetURL
         }
         selectionCursor = targetURL
+    }
+
+    /// The index one row above or below `index` in the card grid, or `index` when there is none.
+    private func verticalTarget(from index: Int, up: Bool, columns: Int) -> Int {
+        // Rows as the grid lays them out: (group number, first index, card count).
+        var rows: [(group: Int, start: Int, count: Int)] = []
+        let sizes = groups.isEmpty ? [items.count] : groups.map(\.items.count)
+        var start = 0
+        for (group, size) in sizes.enumerated() {
+            for offset in stride(from: 0, to: size, by: columns) {
+                rows.append((group, start + offset, min(columns, size - offset)))
+            }
+            start += size
+        }
+        guard let row = rows.firstIndex(where: { index >= $0.start && index < $0.start + $0.count }) else { return index }
+        let next = up ? row - 1 : row + 1
+        guard rows.indices.contains(next) else { return index }
+        let column = index - rows[row].start
+        if column < rows[next].count { return rows[next].start + column }
+        // Short row: crossing into another group clamps to its last card; inside one, stay.
+        return rows[next].group != rows[row].group ? rows[next].start + rows[next].count - 1 : index
     }
 
     func selectAll() { selection = Set(items.map(\.url)) }

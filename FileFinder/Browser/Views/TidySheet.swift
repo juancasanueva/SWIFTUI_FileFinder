@@ -15,6 +15,24 @@ extension FileKind {
     }
 }
 
+/// The header of one group in a grouped pane: a folder in the group's own color for kinds.
+struct GroupHeader: View {
+    let group: ItemGroup
+
+    var body: some View {
+        HStack(spacing: 6) {
+            switch group.style {
+            case .folders: Image(systemName: "folder.fill").foregroundStyle(.teal)
+            case .kind(let kind): Image(systemName: "folder.fill").foregroundStyle(kind.color)
+            case .date: Image(systemName: "calendar").foregroundStyle(.secondary)
+            }
+            Text(group.title).fontWeight(.semibold)
+            Text("\(group.items.count)").monospacedDigit().foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+}
+
 /// The Tidy preview: which files go into which kind folder, before anything moves.
 struct TidySheet: View {
     let plan: TidyPlan

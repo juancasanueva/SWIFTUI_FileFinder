@@ -48,29 +48,46 @@ struct FileGridView: View {
     private func grid(columnCount: Int) -> some View {
         let columns = Array(
             repeating: GridItem(.flexible(), spacing: FileGridLayout.spacing, alignment: .top), count: columnCount)
-        return LazyVGrid(columns: columns, spacing: 16) {
-            ForEach(model.items) { item in
-                FileCard(model: model, item: item, isSelected: model.selection.contains(item.url))
-                    .id(item.url)
-                    .contentShape(.rect)
-                    .onTapGesture(count: 2) { model.open([item.url]) }
-                    .onTapGesture {
-                        isFocused = true
-                        model.click(item, modifiers: NSEvent.modifierFlags)
+        return LazyVGrid(columns: columns, spacing: 16, pinnedViews: [.sectionHeaders]) {
+            if model.groups.isEmpty {
+                cards(model.items)
+            } else {
+                // Each section starts a new row, matching `BrowserModel.moveSelection`.
+                ForEach(model.groups) { group in
+                    Section {
+                        cards(group.items)
+                    } header: {
+                        GroupHeader(group: group)
+                            .padding(.vertical, 4)
+                            .background(.bar)
                     }
-                    .contextMenu {
-                        FileContextMenu(
-                            model: model,
-                            urls: model.selection.contains(item.url) ? model.selection : [item.url])
-                    }
-                    .onDrag { model.beginDrag(item) }
-                    .dropDestination(for: URL.self) { urls, _ in
-                        model.handleDrop(urls, onto: item)
-                        return true
-                    }
+                }
             }
         }
         .padding(FileGridLayout.padding)
+    }
+
+    private func cards(_ items: [FileItem]) -> some View {
+        ForEach(items) { item in
+            FileCard(model: model, item: item, isSelected: model.selection.contains(item.url))
+                .id(item.url)
+                .contentShape(.rect)
+                .onTapGesture(count: 2) { model.open([item.url]) }
+                .onTapGesture {
+                    isFocused = true
+                    model.click(item, modifiers: NSEvent.modifierFlags)
+                }
+                .contextMenu {
+                    FileContextMenu(
+                        model: model,
+                        urls: model.selection.contains(item.url) ? model.selection : [item.url])
+                }
+                .onDrag { model.beginDrag(item) }
+                .dropDestination(for: URL.self) { urls, _ in
+                    model.handleDrop(urls, onto: item)
+                    return true
+                }
+        }
     }
 
     private func handleArrow(_ press: KeyPress) -> KeyPress.Result {

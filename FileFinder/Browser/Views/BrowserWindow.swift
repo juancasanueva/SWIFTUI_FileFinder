@@ -93,6 +93,15 @@ private struct BrowserWindowContent: View {
                 .help("Show or hide the preview pane (⇧⌘P)")
         }
         ToolbarItem {
+            Menu("Group By", systemImage: "rectangle.3.group") {
+                Picker("Group By", selection: Bindable(active).groupBy) {
+                    ForEach(GroupBy.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+            }
+            .help("Group by kind or date added; nothing moves on disk")
+        }
+        ToolbarItem {
             Picker("View", selection: Bindable(active).viewMode) {
                 Label("List", systemImage: "list.bullet").tag(BrowserViewMode.list)
                 Label("Cards", systemImage: "square.grid.2x2").tag(BrowserViewMode.cards)

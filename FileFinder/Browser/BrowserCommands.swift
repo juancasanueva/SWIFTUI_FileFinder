@@ -75,6 +75,13 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("1")
             Button("as Cards") { browser?.viewMode = .cards }
                 .keyboardShortcut("2")
+            Picker("Group By", selection: Binding(
+                get: { browser?.groupBy ?? .none },
+                set: { browser?.groupBy = $0 }
+            )) {
+                ForEach(GroupBy.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            .disabled(browser == nil)
             Divider()
             Button("Bigger Icons") { if let next = browser?.iconSize.bigger { browser?.iconSize = next } }
                 .keyboardShortcut("+")

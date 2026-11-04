@@ -41,10 +41,16 @@ struct FileListView: View {
             }
             .width(min: 80, ideal: 140)
         } rows: {
-            ForEach(model.items) { item in
-                TableRow(item)
-                    .itemProvider { model.beginDrag(item) }
-                    .dropDestination(for: URL.self) { urls in model.handleDrop(urls, onto: item) }
+            if model.groups.isEmpty {
+                ForEach(model.items) { row($0) }
+            } else {
+                ForEach(model.groups) { group in
+                    Section {
+                        ForEach(group.items) { row($0) }
+                    } header: {
+                        GroupHeader(group: group)
+                    }
+                }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -58,6 +64,12 @@ struct FileListView: View {
         } primaryAction: { urls in
             model.open(urls)
         }
+    }
+
+    private func row(_ item: FileItem) -> some TableRowContent<FileItem> {
+        TableRow(item)
+            .itemProvider { model.beginDrag(item) }
+            .dropDestination(for: URL.self) { urls in model.handleDrop(urls, onto: item) }
     }
 
     private func nameCell(_ item: FileItem) -> some View {

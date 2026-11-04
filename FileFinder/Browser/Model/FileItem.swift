@@ -13,6 +13,8 @@ nonisolated struct FileItem: Identifiable, Hashable, Sendable {
     let modificationDate: Date?
     let creationDate: Date?
     let kind: String
+    /// When the item was put in its folder (Finder's Date Added).
+    var dateAdded: Date? = nil
 
     var id: URL { url }
 
