@@ -59,9 +59,10 @@ final class SmartCleanModel {
     @ObservationIgnored private let measuresStorage: Bool
     /// Bumped per scan, so a slow, older scan never overwrites a newer one.
     @ObservationIgnored private var generation = 0
-    /// Items already shown in this scan: a later suggestion listing one again must not tick
-    /// it again after the user unticked it.
-    @ObservationIgnored private var offered: Set<URL> = []
+    /// Items the user ticked or unticked in this scan: a later suggestion listing one again
+    /// leaves the user's choice alone. Any other item starts ticked when a suggestion that
+    /// lists it ticks by default, whichever finishes first.
+    @ObservationIgnored private var changedByUser: Set<URL> = []
     /// Set by `requestEmptyTrash`, cleared by cancel or confirm. Separate from the dialog's
     /// `isConfirmingEmptyTrash`, which SwiftUI resets before the button's action runs.
     @ObservationIgnored private var emptyTrashRequested = false
@@ -104,11 +105,13 @@ final class SmartCleanModel {
 
     func toggle(_ url: URL) {
         let url = url.canonical
+        changedByUser.insert(url)
         if ticked.contains(url) { ticked.remove(url) } else { ticked.insert(url) }
     }
 
     func setAll(_ kind: SuggestionKind, ticked isTicked: Bool) {
         let urls = suggestion(kind)?.candidates.map(\.url) ?? []
+        changedByUser.formUnion(urls)
         if isTicked { ticked.formUnion(urls) } else { ticked.subtract(urls) }
     }
 
@@ -169,7 +172,7 @@ final class SmartCleanModel {
         suggestions = SuggestionKind.allCases.map { CleanSuggestion(kind: $0, candidates: []) }
         failures = [:]
         ticked = []
-        offered = []
+        changedByUser = []
         scanningKinds = Set(scanners.map(\.kind))
         async let storage: Void = measureStorage(environment, generation: generation)
         await withTaskGroup(of: (SuggestionKind, Result<[CleanCandidate], any Error>).self) { group in
@@ -203,8 +206,7 @@ final class SmartCleanModel {
             .filter { FileManager.default.fileExists(atPath: $0.url.path) }
             .sorted { $0.bytes > $1.bytes }
         suggestions[index].candidates += present
-        for candidate in present where !offered.contains(candidate.url) {
-            offered.insert(candidate.url)
+        for candidate in present where !changedByUser.contains(candidate.url) {
             if candidate.isTickedByDefault ?? (kind.group == .safe) { ticked.insert(candidate.url) }
         }
     }

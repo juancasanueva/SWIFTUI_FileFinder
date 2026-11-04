@@ -279,7 +279,10 @@ struct SmartCleanTests {
         let root = dir.url
         let trash = root.appending(path: ".Trash")
         let swapper = Thread {
-            while ((try? FileManager.default.contentsOfDirectory(atPath: trash.path).count) ?? count) > count - 50 {}
+            // Gives up after 10 s or when the listing fails, so the test never hangs.
+            let deadline = Date.now.addingTimeInterval(10)
+            while ((try? FileManager.default.contentsOfDirectory(atPath: trash.path).count) ?? 0) > count - 50,
+                  Date.now < deadline {}
             try? FileManager.default.moveItem(at: trash, to: root.appending(path: ".Trash-real"))
             try? FileManager.default.createSymbolicLink(at: trash, withDestinationURL: root.appending(path: "Documents"))
         }
@@ -329,6 +332,43 @@ struct SmartCleanTests {
         while !model.isTicked(dmg) { await Task.yield() }
 
         model.toggle(dmg)
+        await gate.open()
+        await scan.value
+
+        #expect(!model.isTicked(dmg))
+    }
+
+    @Test("An item listed by Safe to clear starts ticked even when a Your call suggestion lists it first")
+    func safeTickWinsWhicheverFinishesFirst() async throws {
+        let dmg = try dir.file("Downloads/App.dmg", bytes: 4)
+        let gate = Gate()
+        let model = model([
+            SlowScanner(kind: .installers, gate: gate) { [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+            FixedScanner(kind: .oldDownloads) { _ in [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+        ])
+        let scan = Task { await model.lookAgain() }
+        while model.suggestion(.oldDownloads)?.candidates.isEmpty != false { await Task.yield() }
+        #expect(!model.isTicked(dmg))
+
+        await gate.open()
+        await scan.value
+
+        #expect(model.isTicked(dmg))
+    }
+
+    @Test("Ticking a whole suggestion counts as the user's choice: a slower one doesn't change it")
+    func setAllSticks() async throws {
+        let dmg = try dir.file("Downloads/App.dmg", bytes: 4)
+        let gate = Gate()
+        let model = model([
+            FixedScanner(kind: .oldDownloads) { _ in [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+            SlowScanner(kind: .installers, gate: gate) { [CleanCandidate(url: dmg, bytes: 4, detail: "")] },
+        ])
+        let scan = Task { await model.lookAgain() }
+        while model.suggestion(.oldDownloads)?.candidates.isEmpty != false { await Task.yield() }
+        model.setAll(.oldDownloads, ticked: true)
+        model.setAll(.oldDownloads, ticked: false)
+
         await gate.open()
         await scan.value
 
