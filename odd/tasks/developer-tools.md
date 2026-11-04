@@ -23,6 +23,8 @@ Quoted from the reference site (fileosmac.com):
 - [x] T3 S4 — path bar commands — inline — 3fde66e (RED→GREEN, 210/210; app launches)
 - [x] T4 S1 — git status must never run commands from the repository's config (core.fsmonitor, filter drivers, submodules, lazy fetch) — inline — d5a760e + correction 33a8afb (behavioral RED → GREEN, 216/216); Risk: item 2; verifier recheck B1–B4 FIXED; native review approved + acknowledged (review-41b976e8b59edc82)
 
+- [ ] T5 S1 — refuse status on git older than 2.44 (ignores GIT_NO_LAZY_FETCH) — inline
+
 Route evidence: T3 depends on T2; T1 touches PathBar like T3; no Writer trigger.
 
 ## Log
@@ -36,3 +38,4 @@ Route evidence: T3 depends on T2; T1 touches PathBar like T3; no Writer trigger.
 - L7 Correction 33a8afb (one batch): verbatim driver parsing (no crash), overrides via GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_NO_LAZY_FETCH=1, inherited GIT_* dropped (A3), fail closed when the filter listing fails, one shared 5 s deadline (A1). Regression tests for B1–B4, each proving the trap fires with plain git. 216/216. A2 and A4 accepted as advisories (counts only; nothing runs). Recheck limited to B1–B4 requested.
 - L8 Verifier recheck (limited to B1–B4): all FIXED; A1 worst case now 5.4 s, fails closed. Scratch removed.
 - L9 Native review (base 3fde66e, committed-only, escalated item 2; lenses risk/resilience/reliability; consent granted): approved, acknowledged, authority burned. Non-blocking advisories (follow-ups, not done): R1/R3/R4 GIT_NO_LAZY_FETCH is ignored by git < 2.44 (older Apple CLT/Xcode 2.39 line) — fix by refusing status on old git or failing closed when a promisor remote/partialClone is configured (installed gits here are 2.54/2.56); R3/R4 blanking every filter (incl. the user's global LFS) can over-count stat-dirty LFS files.
+- L10 (2026-11-04) User: "yes, fix the older git hole" → T5: run `git --version` first (reads no repo config), cache per resolved binary, skip status (changes nil, branch still shown) below 2.44.

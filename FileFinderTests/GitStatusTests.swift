@@ -288,3 +288,77 @@ struct GitStatusTests {
         #expect(pane.gitStatus == nil)
     }
 }
+
+@MainActor
+@Suite("Git version gate")
+struct GitVersionGateTests {
+    let dir: TemporaryDirectory
+
+    init() throws {
+        dir = try TemporaryDirectory()
+        let gitDir = try dir.folder("repo/.git")
+        try "ref: refs/heads/main\n".write(to: gitDir.appending(path: "HEAD"), atomically: true, encoding: .utf8)
+    }
+
+    /// A fake git that reports `version` and touches a marker for any other command.
+    private func fakeGit(version: String) throws -> (git: URL, marker: String) {
+        let marker = dir.url.appending(path: "ran-\(UUID().uuidString)").path
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "git version \(version)"; exit 0; fi
+        touch "\(marker)"
+        exit 0
+        """
+        let git = try dir.file("bin-\(UUID().uuidString)/git")
+        try script.write(to: git, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: git.path)
+        return (git, marker)
+    }
+
+    @Test("Versions are read from git's own output", arguments: [
+        ("git version 2.54.0 (Apple Git-157)", 2, 54), ("git version 2.39.5 (Apple Git-154)", 2, 39),
+        ("git version 2.44.0", 2, 44), ("git version 3.0.1.windows.1", 3, 0),
+    ])
+    func parse(output: String, major: Int, minor: Int) throws {
+        let version = try #require(GitStatusReader.parseVersion(output))
+        #expect(version.major == major && version.minor == minor)
+    }
+
+    @Test("Unreadable version output counts as unknown")
+    func parseGarbage() {
+        #expect(GitStatusReader.parseVersion("") == nil)
+        #expect(GitStatusReader.parseVersion("hub version 2.14") == nil)
+    }
+
+    @Test("Only git 2.44 and later honour GIT_NO_LAZY_FETCH", arguments: [
+        (2, 43, false), (2, 44, true), (2, 54, true), (3, 0, true), (1, 99, false),
+    ])
+    func gate(major: Int, minor: Int, allowed: Bool) {
+        #expect(GitStatusReader.blocksLazyFetch((major, minor)) == allowed)
+    }
+
+    @Test("With an older git nothing but `git --version` runs, and only the branch is shown")
+    func oldGitRunsNothing() throws {
+        let fake = try fakeGit(version: "2.39.5 (Apple Git-154)")
+
+        let status = try #require(GitStatusReader.status(of: dir.url.appending(path: "repo"), git: fake.git))
+
+        #expect(status.branch == "main")
+        #expect(status.changes == nil)
+        #expect(!FileManager.default.fileExists(atPath: fake.marker))
+    }
+
+    @Test("A git that doesn't say its version is treated as too old")
+    func unknownVersionRunsNothing() throws {
+        let fake = try fakeGit(version: "")
+        _ = GitStatusReader.status(of: dir.url.appending(path: "repo"), git: fake.git)
+        #expect(!FileManager.default.fileExists(atPath: fake.marker))
+    }
+
+    @Test("With a recent git the status commands do run")
+    func recentGitRuns() throws {
+        let fake = try fakeGit(version: "2.54.0 (Apple Git-157)")
+        _ = GitStatusReader.status(of: dir.url.appending(path: "repo"), git: fake.git)
+        #expect(FileManager.default.fileExists(atPath: fake.marker))
+    }
+}

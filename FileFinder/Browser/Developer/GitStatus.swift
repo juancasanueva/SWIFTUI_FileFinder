@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The git state shown in the path bar.
 nonisolated struct GitStatus: Equatable, Sendable {
@@ -114,6 +115,35 @@ nonisolated enum GitStatusReader {
         return environment
     }
 
+    /// Major and minor version from `git --version` output ("git version 2.54.0 (Apple Git-157)").
+    static func parseVersion(_ output: String) -> (major: Int, minor: Int)? {
+        let prefix = "git version "
+        guard output.hasPrefix(prefix) else { return nil }
+        let numbers = output.dropFirst(prefix.count).prefix { !$0.isWhitespace }.split(separator: ".")
+        guard numbers.count >= 2, let major = Int(numbers[0]), let minor = Int(numbers[1]) else { return nil }
+        return (major, minor)
+    }
+
+    /// `GIT_NO_LAZY_FETCH` exists since git 2.44; older gits ignore it and would still fetch.
+    static func blocksLazyFetch(_ version: (major: Int, minor: Int)) -> Bool {
+        version.major > 2 || (version.major == 2 && version.minor >= 44)
+    }
+
+    /// Version checks per resolved binary (an upgrade changes the resolved path).
+    private static let recentEnough = Mutex<[String: Bool]>([:])
+
+    /// Whether `git` is 2.44 or later. `git --version` reads no repository config; it runs from
+    /// "/" so it isn't even inside one. An unreadable answer counts as too old.
+    private static func isRecentEnough(_ git: URL, environment: [String: String], deadline: Date) -> Bool {
+        let key = git.resolvingSymlinksInPath().path
+        if let known = recentEnough.withLock({ $0[key] }) { return known }
+        guard let output = run(git, ["--version"], environment: environment, deadline: deadline,
+                               directory: URL(filePath: "/")) else { return false }   // not cached: may be transient
+        let recent = parseVersion(output).map(blocksLazyFetch) ?? false
+        recentEnough.withLock { $0[key] = recent }
+        return recent
+    }
+
     static func changeCount(porcelain: String) -> Int {
         porcelain.split(whereSeparator: \.isNewline).count
     }
@@ -129,6 +159,9 @@ nonisolated enum GitStatusReader {
 
     private static func runStatus(git: URL, root: URL, deadline: Date) -> Int? {
         let inherited = ProcessInfo.processInfo.environment
+        // An older git would still lazily fetch (running the remote's commands): show no count.
+        guard isRecentEnough(git, environment: gitEnvironment(inherited: inherited, filterDrivers: []), deadline: deadline)
+        else { return nil }
         // `--get-regexp` exits with 1 when nothing matches: no filters. Without the list the
         // filters can't be switched off, so status doesn't run at all.
         guard let names = run(git, filterConfigArguments(root: root),
@@ -142,7 +175,7 @@ nonisolated enum GitStatusReader {
     /// Runs git and returns its output, or `nil` on failure or once `deadline` passes.
     private static func run(
         _ git: URL, _ arguments: [String], environment: [String: String], deadline: Date,
-        acceptedStatuses: Set<Int32> = [0]
+        acceptedStatuses: Set<Int32> = [0], directory: URL? = nil
     ) -> String? {
         let remaining = deadline.timeIntervalSinceNow
         guard remaining > 0 else { return nil }
@@ -150,6 +183,7 @@ nonisolated enum GitStatusReader {
         process.executableURL = git
         process.arguments = arguments
         process.environment = environment
+        if let directory { process.currentDirectoryURL = directory }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
