@@ -239,6 +239,36 @@ struct SmartCleanTests {
         await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
     }
 
+    @Test("The Trash is checked when it's emptied: one swapped for a link while queued is never emptied")
+    func trashSwappedWhileQueued() async throws {
+        try dir.file("Documents/precious.txt", bytes: 5)
+        try dir.file(".Trash/old.txt")
+        let source = try dir.file("a.txt")
+        try dir.file("Inbox/a.txt")
+        let trash = dir.url.appending(path: ".Trash")
+        let reached = Gate(), release = Gate()
+        let actions = actions
+        // A copy waiting on a conflict answer holds the queue.
+        let copy = Task {
+            try await actions.copy([source], into: dir.url.appending(path: "Inbox")) { _ in
+                await reached.open()
+                await release.wait()
+                return .skipAll
+            }
+        }
+        await reached.wait()
+        let empty = Task { try await actions.emptyTrash(trash) }
+        while actions.queuedOperations == 0 { await Task.yield() }
+
+        try FileManager.default.removeItem(at: trash)
+        try FileManager.default.createSymbolicLink(at: trash, withDestinationURL: dir.url.appending(path: "Documents"))
+        await release.open()
+        _ = try? await copy.value
+
+        await #expect(throws: FileActionError.notTheTrash) { try await empty.value }
+        #expect(exists("Documents/precious.txt"))
+    }
+
     @Test("The dialog closing before its button runs still empties the Trash")
     func dialogDismissedFirst() async throws {
         try dir.file(".Trash/old.txt")

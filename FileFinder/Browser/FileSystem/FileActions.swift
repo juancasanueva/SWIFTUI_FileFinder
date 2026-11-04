@@ -335,16 +335,29 @@ final class FileActions {
     /// Refuses anything that isn't a real folder named ".Trash": a link named ".Trash" would
     /// otherwise empty the folder it points to.
     func emptyTrash(_ trash: URL) async throws {
-        // `attributesOfItem` doesn't follow a final link (unlike `fileExists(atPath:isDirectory:)`).
-        let type = (try? FileManager.default.attributesOfItem(atPath: trash.path))?[.type] as? FileAttributeType
-        guard trash.lastPathComponent == ".Trash", type == .typeDirectory else { throw FileActionError.notTheTrash }
+        guard trash.lastPathComponent == ".Trash" else { throw FileActionError.notTheTrash }
+        // Checked inside the queued work, right before deleting: the Trash may change while
+        // earlier operations run.
         try await serialized { try await Self.performEmptyTrash(trash) }
     }
 
+    /// The folder's device and inode, or `nil` when `url` isn't a real folder. `lstat` never
+    /// follows a final link.
+    private nonisolated static func realFolderIdentity(_ url: URL) -> (dev_t, ino_t)? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+        return (info.st_dev, info.st_ino)
+    }
+
     @concurrent private nonisolated static func performEmptyTrash(_ trash: URL) async throws {
+        guard let identity = realFolderIdentity(trash) else { throw FileActionError.notTheTrash }
         let fileManager = FileManager.default
         var firstError: (any Error)?
         for name in try fileManager.contentsOfDirectory(atPath: trash.path) {
+            // Still the same real folder before every deletion, never a link swapped in.
+            guard let current = realFolderIdentity(trash), current == identity else {
+                throw FileActionError.notTheTrash
+            }
             do {
                 try fileManager.removeItem(at: trash.appending(path: name))
             } catch {
