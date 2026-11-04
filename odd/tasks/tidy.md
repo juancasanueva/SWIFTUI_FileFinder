@@ -1,11 +1,11 @@
 # Tidy
 
-Objective: fifth slice of the fileosmac.com functional clone: tidy loose files into folders by kind, and group a folder by kind or date added.
+Objective: fifth slice of FileFinder: tidy loose files into folders by kind, and group a folder by kind or date added.
 Branch: `feat/tidy` (stacked on `feat/workspaces`). Delivery: ask-on-risk, one stacked branch per slice (as in earlier slices). Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -destination 'platform=macOS' -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted from the reference site (fileosmac.com):
+Quoted from the requested feature list:
 
 - S1 "Tidy moves every loose file into a folder for its kind." Kinds: "Videos, Images, PDFs, Documents, Installers, Other". "⌥⌘T: Tidy this folder"; a "Tidy Downloads…" button. "Your Downloads, sorted in one click."
   - Assumption: loose files are the visible non-folder items directly in the folder (packages such as .app count as files). Hidden files and in-progress downloads (.download, .crdownload, .part) never move. Files go into "<folder>/<Kind>"; an existing folder of that name is reused, a clash inside it keeps both ("name 2.ext"). A kind whose folder name is taken by a file is left out. Unavailable in workspaces.

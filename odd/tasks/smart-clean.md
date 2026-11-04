@@ -1,14 +1,14 @@
 # Smart Clean
 
-Objective: seventh slice of the fileosmac.com functional clone: a storage overview plus nine cleanup suggestions, Trash-first with Undo.
+Objective: seventh slice of FileFinder: a storage overview plus nine cleanup suggestions, Trash-first with Undo.
 Branch: `feat/smart-clean` (stacked on `feat/developer-tools`). Delivery: ask-on-risk, one stacked branch per slice (cached from earlier slices); work-unit commits, high-risk units committed alone. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -destination 'platform=macOS' -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted from the reference site (fileosmac.com):
+Quoted from the requested feature list:
 
 - S1 "Space back, safely" — "Nine suggestions, each says why, with Undo." "Keep your Mac roomy. Nothing goes until you've seen it, everything goes to the Trash, and Undo brings it back."
-- S2 "FileOS shows how full your Mac is, then nine suggestions sorted into Safe to clear and Your call. Each one says why." Storage bar: "8.8 GB free of 245 GB", "Macintosh HD 236.2 GB used", categories "Apps", "Your files", "System", "Other", "In the Trash"; "You could free about 34 GB."
+- S2 "FileFinder shows how full your Mac is, then nine suggestions sorted into Safe to clear and Your call. Each one says why." Storage bar: "8.8 GB free of 245 GB", "Macintosh HD 236.2 GB used", categories "Apps", "Your files", "System", "Other", "In the Trash"; "You could free about 34 GB."
   - Assumption: Apps = /Applications + ~/Applications; Your files = the home folder without ~/Library, ~/Applications and the Trash; Other = ~/Library; In the Trash = ~/.Trash; System = the rest of the used space. "You could free about" = the ticked total. Measured in the background; sizes show as they arrive.
 - S3 "Safe to clear comes ticked: developer caches, duplicates (the copy you opened last is kept), installers for apps you have, and Mail's copies of attachments you opened."
 - S4 "Your call starts unticked: big files, apps you haven't opened in 6 months, old screen recordings, old downloads and leftovers of deleted apps."

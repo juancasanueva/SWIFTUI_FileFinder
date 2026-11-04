@@ -1,11 +1,11 @@
 # Workspaces
 
-Objective: fourth slice of the fileosmac.com functional clone: named pages that gather folders and files from anywhere.
+Objective: fourth slice of FileFinder: named pages that gather folders and files from anywhere.
 Branch: `feat/workspaces` (stacked on `feat/dual-pane`). Delivery: ask-on-risk. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted from the reference site (fileosmac.com):
+Quoted from the requested feature list:
 
 - S1 "Collects folders and files from anywhere on the Mac, including cloud and external drives, onto one page."
 - S2 "Nothing is copied or moved."

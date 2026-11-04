@@ -1,11 +1,11 @@
 # Dual pane
 
-Objective: third browser slice of the fileosmac.com functional clone: two side-by-side panes with transfers between them.
+Objective: third browser slice of FileFinder: two side-by-side panes with transfers between them.
 Branch: `feat/dual-pane` (stacked on `feat/folders-and-preview`). Delivery: ask-on-risk. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted from the reference site (fileosmac.com), Dual Pane section:
+Quoted from the requested feature list, Dual Pane section:
 
 - S1 "⌘D splits the window into two panes." (⌘D again returns to one pane.)
 - S2 "F5 copies the selection to the other pane. F6 moves it."

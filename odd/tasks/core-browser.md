@@ -1,11 +1,11 @@
 # Core browser
 
-Objective: functional (not branded) clone of the core file browser of https://fileosmac.com/. Branch: `feat/core-browser`.
+Objective: the core file browser of FileFinder. Branch: `feat/core-browser`.
 Delivery: ask-on-risk. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted fragments come from the reference site's feature list (fileosmac.com).
+Quoted fragments come from the requested feature list.
 
 - S1 Sidebar: "Favorites (Desktop, Documents, Downloads)", "Locations (iCloud Drive, ... the user's home folder, Macintosh HD)", external drives "appear in the sidebar", and "Trash". Workspaces and Smart Clean are out of scope for this feature.
 - S2 Path bar: "Shows the breadcrumb path and accepts typed paths (⌘L)"; "⌘L | Type a path (Tab completes)".
@@ -38,9 +38,9 @@ Route evidence: one coherent app, units depend on each other (UI depends on T1-T
 
 ## Log
 
-- L1 (2026-11-03) User: "I want to implement a MacOS app that is an exact clone of this app:  https://fileosmac.com/"
+- L1 (2026-11-03) User: "I want to implement a MacOS app that is an exact clone of this app:  [reference app]"
 - L2 (2026-11-03) User: "A, start with the core browser"
-- L3 Decision: clone functionality/UX only, not the FileOS name, logo, or marketing assets.
+- L3 Decision: clone functionality/UX only, not the reference app's name, logo, or marketing assets.
 - L4 Baseline: scaffold committed at 5658fcd; baseline build succeeds (Xcode 27.2, macOS 27.2 target).
 - L5 Added paste-and-move (⌥⌘V, Finder parity) with RED->GREEN test. URLs normalized via `URL.canonical` so folder URLs from listings, sidebar and pasted results compare equal.
 - L6 Risk: item 2 (app sandbox disabled). RDD assess escalated to high; review due. Independent verifier launched first.

@@ -1,6 +1,6 @@
 # Folders and preview
 
-Objective: second browser slice of the fileosmac.com functional clone: New Folder, keyboard navigation in card view, preview pane.
+Objective: second browser slice of FileFinder: New Folder, keyboard navigation in card view, preview pane.
 Branch: `feat/folders-and-preview` (stacked on `feat/core-browser`). Delivery: ask-on-risk. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -only-testing:FileFinderTests`.
 
 ## Specs

@@ -1,13 +1,13 @@
 # Developer tools
 
-Objective: sixth slice of the fileosmac.com functional clone: git at a glance, Open in Terminal / editor, path bar commands, Settings.
+Objective: sixth slice of FileFinder: git at a glance, Open in Terminal / editor, path bar commands, Settings.
 Branch: `feat/developer-tools` (stacked on `feat/tidy`). Delivery: ask-on-risk, one stacked branch per slice. Test runner: Swift Testing via `xcodebuild test -scheme FileFinder -destination 'platform=macOS' -only-testing:FileFinderTests`.
 
 ## Specs
 
-Quoted from the reference site (fileosmac.com):
+Quoted from the requested feature list:
 
-- S1 "Git at a glance: the branch and uncommitted changes in the path bar." "Read-only: it never fetches, pulls or changes anything." "FileOS spots your git projects and works with the terminal and editor you already use."
+- S1 "Git at a glance: the branch and uncommitted changes in the path bar." "Read-only: it never fetches, pulls or changes anything." "FileFinder spots your git projects and works with the terminal and editor you already use."
   - Assumption: shown when the current folder is inside a git work tree (a `.git` folder or worktree file above it). The branch comes from HEAD (a short commit id when detached). The change count includes untracked files and comes from `git --no-optional-locks status --porcelain`, so even the index stat cache is never rewritten; without a git binary only the branch shows. A git binary is used only from Homebrew, /usr/local or an installed developer directory, so the "install command line tools" prompt never appears. Refreshed when the folder loads or changes.
 - S2 "The folder you're in, in your terminal. From the toolbar, a right-click or the keyboard." "⌥⇧⌘T: Open the folder in Terminal". Terminals: "Terminal, iTerm, Warp and Ghostty".
   - Assumption: right-clicking a folder opens that folder; in a workspace the single selected folder is used.

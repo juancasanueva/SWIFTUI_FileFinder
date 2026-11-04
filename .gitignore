@@ -1,5 +1,36 @@
-xcuserdata/
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Build output
 build/
 DerivedData/
+*.xcarchive
+*.xcresult
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local tooling
 .codegraph/
+.claude/
