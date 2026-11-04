@@ -553,6 +553,20 @@ struct SmartCleanTests {
         await scan.value
     }
 
+    @Test("Closing the window cancels a scan started by the Look Again button")
+    func closingCancelsButtonScan() async throws {
+        let probe = ScanProbe()
+        let model = model([UntilCancelledScanner(kind: .duplicates, probe: probe)])
+        let button = Task { await model.lookAgain() }   // the button's own, never-cancelled task
+        while await probe.started < 1 { await Task.yield() }
+
+        model.stopScanning()
+
+        #expect(await probe.waitForCancellation())
+        await button.value
+        #expect(!model.isScanning)
+    }
+
     @Test("An item gone since the scan doesn't stop the others from being cleaned")
     func vanishedItem() async throws {
         let a = try dir.file("a.bin", bytes: 1)

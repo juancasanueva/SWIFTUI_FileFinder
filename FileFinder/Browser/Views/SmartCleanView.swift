@@ -13,6 +13,7 @@ struct SmartCleanWindow: View {
             .onAppear { model.actions.undoManager = undoManager }
             .onChange(of: undoManager) { _, manager in model.actions.undoManager = manager }
             .task { await model.lookAgain() }
+            .onDisappear { model.stopScanning() }
             .frame(minWidth: 560, minHeight: 520)
     }
 }

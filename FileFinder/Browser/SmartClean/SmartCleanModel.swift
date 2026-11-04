@@ -178,6 +178,12 @@ final class SmartCleanModel {
         }
     }
 
+    /// Cancels the running scan, whoever started it (the window's task, the Look Again or
+    /// Clean button). Called when the window closes.
+    func stopScanning() {
+        currentScan?.cancel()
+    }
+
     private func scan() async {
         generation += 1
         let generation = generation
@@ -228,6 +234,8 @@ final class SmartCleanModel {
     private func measureStorage(_ environment: CleanEnvironment, generation: Int) async {
         guard measuresStorage else { return }
         guard let capacity = StorageOverview.capacity(of: environment.home) else { return }
+        // This child task may start after a newer scan began: never reset its overview.
+        guard generation == self.generation else { return }
         storage = StorageOverview(total: capacity.total, available: capacity.available)
         async let apps = StorageOverview.measureApps(environment)
         async let files = StorageOverview.measureYourFiles(environment)

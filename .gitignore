@@ -34,3 +34,4 @@ Packages/
 # Local tooling
 .codegraph/
 .claude/
+.atl/

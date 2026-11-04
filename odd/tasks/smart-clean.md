@@ -46,6 +46,10 @@ Quoted from the requested feature list:
 - [x] T6 S1,S2,S6 — Smart Clean window: storage bar, sections, rows with why and items, Clean, Undo, Look Again, Empty Trash dialog, sidebar + menu entry — inline — 85062e1 (builds; not runtime-driven)
 
 Route evidence: T2–T5 are four independent units with disjoint files (one scanner file + one test file each), each 150+ lines with tests, launched together after T1 → Writer trigger (a) parallelism; the parent owns git and the scanner registry. T1 and T6 inline. Risk: T1 item 1 (Empty Trash deletes permanently; bulk trashing of user files) → independent verifier + native review; T5 leftovers item 1 (heuristic targets in ~/Library).
+- [x] T17 S2,S6 — L19 A1/A2: closing the window cancels a scan started by Look Again or Clean; storage is never reset by an older scan — inline — (this commit) (RED→GREEN for A1, 319; A2 has no deterministic RED: a child task starting late)
+- [ ] T18 S6 — L26 R3-001/R3-004: FileActions owns one Trash folder (injectable, real ~/.Trash by default); only paths inside it count as the Trash, Empty Trash empties only it, and tests trash into their own Trash — inline
+- [ ] T19 S6 — L26 R3-002: undo steps that act inside the Trash (a rename in it, a copy or New Folder into it) are dropped when it is emptied — inline
+- [ ] T20 S6 — L14 R1-001, L29 R4-001/R3-001/R3-002/R3-003: Empty Trash deletes relative to the opened Trash folder (no link followed at any depth), knows exactly whether anything was deleted, drops Undo after emptying an already-empty Trash; committed tests for every outcome — inline
 
 ## Log
 
@@ -100,3 +104,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R3-003 partlyEmptiedFolderDropsUndo now proves the conservative rule, not real partial deletion.
   - R3-004 dropTrashUndo runs inside the serialized Task, which inherits FileActions' main-actor isolation (default MainActor isolation) — checked, no issue.
 - L30 2026-11-04 Manual check of the Smart Clean window by the user: "IT look ok ans works". Scan, ticks, duplicates, Clean + Undo, Look Again, Empty Trash and closing during a scan were offered as the checklist.
+- L31 2026-11-04 User: "fix the remaining Smart Clean advisories". Branch `fix/smart-clean-advisories` from `main` (the feature branches were merged into main and deleted). Open advisories: L14 R1-001 (descriptor-relative deletion); L19 A1, A2; L26 R3-001, R3-002, R3-004; L29 R4-001, R3-001, R3-002, R3-003. Planned as T17–T20, inline (no writer reason: one behavior area, sequential).
