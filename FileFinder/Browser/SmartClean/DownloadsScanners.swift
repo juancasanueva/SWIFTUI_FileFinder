@@ -21,7 +21,9 @@ private nonisolated enum DirectChildren {
 
 // MARK: - Installers
 
-/// .dmg and .pkg files in Downloads and Desktop for apps that are installed.
+/// Disk images and packages in Downloads and Desktop for apps you installed: only real
+/// installers (a disk image's UDIF trailer, a package's header or folder), and only apps in
+/// the Applications folders that aren't Apple's.
 nonisolated struct InstallersScanner: SuggestionScanner {
     let kind = SuggestionKind.installers
 
@@ -35,7 +37,7 @@ nonisolated struct InstallersScanner: SuggestionScanner {
 
     func scan(_ environment: CleanEnvironment) async throws -> [CleanCandidate] {
         var appsByName: [String: InstalledApp] = [:]
-        for app in environment.installedApps {
+        for app in environment.installedApps where Self.isYours(app, environment) {
             let name = Self.normalized(app.name)
             if name.count >= 3, appsByName[name] == nil { appsByName[name] = app }
         }
@@ -44,12 +46,48 @@ nonisolated struct InstallersScanner: SuggestionScanner {
             for url in DirectChildren.of(folder) where Self.extensions.contains(url.pathExtension.lowercased()) {
                 try Task.checkCancellation()
                 let name = Self.normalized(url.deletingPathExtension().lastPathComponent)
-                guard name.count >= 3, let app = appsByName[name] else { continue }
+                guard name.count >= 3, let app = appsByName[name], Self.isInstaller(url) else { continue }
                 found.append(CleanCandidate(
                     url: url, bytes: CleanWalker.size(of: url), detail: "“\(app.name)” is installed"))
             }
         }
         return found
+    }
+
+    /// An app in /Applications or ~/Applications that isn't Apple's (helpers deep in
+    /// Application Support and the system's own apps never had an installer here).
+    private static func isYours(_ app: InstalledApp, _ environment: CleanEnvironment) -> Bool {
+        if app.bundleID?.lowercased().hasPrefix("com.apple.") == true { return false }
+        let path = app.url.canonical.path
+        return environment.applicationFolders.contains { path.hasPrefix($0.canonical.path + "/") }
+    }
+
+    /// Whether the file really is an installer: a disk image ending in the UDIF "koly"
+    /// trailer (an encrypted image has none), a flat package starting with "xar!", or a
+    /// package folder with Contents.
+    static func isInstaller(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values?.isSymbolicLink != true else { return false }
+        switch url.pathExtension.lowercased() {
+        case "pkg" where values?.isDirectory == true:
+            return FileManager.default.fileExists(atPath: url.appending(path: "Contents").path)
+        case "pkg":
+            return read(url, length: 4, fromEnd: false) == Data("xar!".utf8)
+        case "dmg" where values?.isDirectory != true:
+            return read(url, length: 512, fromEnd: true)?.prefix(4) == Data("koly".utf8)
+        default:
+            return false
+        }
+    }
+
+    /// `length` bytes from the start or the end of a file; `nil` when it's shorter or unreadable.
+    private static func read(_ url: URL, length: Int, fromEnd: Bool) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd(), size >= UInt64(length),
+              (try? handle.seek(toOffset: fromEnd ? size - UInt64(length) : 0)) != nil,
+              let data = try? handle.read(upToCount: length), data.count == length else { return nil }
+        return data
     }
 
     /// Lowercased letters and digits of `name`, without version numbers or platform words.

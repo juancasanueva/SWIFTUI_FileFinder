@@ -22,8 +22,26 @@ struct DownloadsScannersTests {
         return url
     }
 
-    private func app(_ name: String) -> InstalledApp {
-        InstalledApp(url: dir.url.appending(path: "Applications/\(name).app"), name: name, bundleID: nil)
+    private func app(_ name: String, in folder: String = "Applications", bundleID: String? = nil) -> InstalledApp {
+        InstalledApp(url: dir.url.appending(path: "\(folder)/\(name).app"), name: name, bundleID: bundleID)
+    }
+
+    /// A real-looking installer: a disk image ending in the UDIF "koly" trailer, or a flat
+    /// package starting with the "xar!" header. Returns its size.
+    @discardableResult
+    private func installer(_ path: String) throws -> Int64 {
+        let url = dir.url.appending(path: path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var data = Data(count: 1_000)
+        if url.pathExtension == "dmg" {
+            var trailer = Data("koly".utf8)
+            trailer.append(Data(count: 508))
+            data.append(trailer)
+        } else {
+            data.replaceSubrange(0..<4, with: Data("xar!".utf8))
+        }
+        try data.write(to: url)
+        return Int64(data.count)
     }
 
     private func paths(_ candidates: [CleanCandidate]) -> Set<String> {
@@ -36,12 +54,12 @@ struct DownloadsScannersTests {
 
     @Test("A .dmg or .pkg in Downloads or Desktop whose name, without version and platform words, matches an installed app")
     func installers() async throws {
-        try file("Downloads/Slack-4.41.105-macOS.dmg", bytes: 5)
-        try file("Desktop/Zoom_v2_universal_installer.pkg", bytes: 3)
-        try file("Downloads/Firefox 132.0.dmg")                   // Firefox isn't installed
+        let slackSize = try installer("Downloads/Slack-4.41.105-macOS.dmg")
+        try installer("Desktop/Zoom_v2_universal_installer.pkg")
+        try installer("Downloads/Firefox 132.0.dmg")              // Firefox isn't installed
         try file("Downloads/Slack-notes.txt")                     // not an installer
-        try file("Downloads/Nested/Slack-4.0.dmg")                // not directly in Downloads
-        try file("Documents/Slack-4.0.dmg")                       // not Downloads or Desktop
+        try installer("Downloads/Nested/Slack-4.0.dmg")           // not directly in Downloads
+        try installer("Documents/Slack-4.0.dmg")                  // not Downloads or Desktop
         let environment = CleanEnvironment.testing(home: dir.url, installedApps: [app("Slack"), app("zoom")])
 
         let found = try await InstallersScanner().scan(environment)
@@ -49,15 +67,15 @@ struct DownloadsScannersTests {
         #expect(InstallersScanner().kind == .installers)
         #expect(paths(found) == ["Downloads/Slack-4.41.105-macOS.dmg", "Desktop/Zoom_v2_universal_installer.pkg"])
         let slack = try #require(found.first { $0.url.lastPathComponent.hasPrefix("Slack") })
-        #expect(slack.bytes == 5)
+        #expect(slack.bytes == slackSize)
         #expect(slack.detail == "“Slack” is installed")
         #expect(found.first { $0.url.lastPathComponent.hasPrefix("Zoom") }?.detail == "“zoom” is installed")
     }
 
     @Test("Names shorter than 3 characters after normalizing never match")
     func installersShortNames() async throws {
-        try file("Downloads/Go-1.22-darwin-arm64.pkg")
-        try file("Downloads/X-2.dmg")
+        try installer("Downloads/Go-1.22-darwin-arm64.pkg")
+        try installer("Downloads/X-2.dmg")
         let environment = CleanEnvironment.testing(home: dir.url, installedApps: [app("Go"), app("X")])
 
         #expect(try await InstallersScanner().scan(environment).isEmpty)
@@ -65,10 +83,39 @@ struct DownloadsScannersTests {
 
     @Test("No installers when the matching app isn't installed, or the folders are missing")
     func installersNoApp() async throws {
-        try file("Downloads/Slack-4.41.105-macOS.dmg")
+        try installer("Downloads/Slack-4.41.105-macOS.dmg")
         #expect(try await InstallersScanner().scan(.testing(home: dir.url)).isEmpty)
         let empty = try TemporaryDirectory()
         #expect(try await InstallersScanner().scan(.testing(home: empty.url, installedApps: [app("Slack")])).isEmpty)
+    }
+
+    @Test("A .dmg or .pkg that isn't really an installer is never listed")
+    func installersCheckTheFormat() async throws {
+        try file("Downloads/Slack.dmg", bytes: 2_000)            // no disk image trailer
+        try file("Downloads/Zoom.pkg", bytes: 2_000)             // no package header
+        try installer("Desktop/Slack-2.dmg")
+        try dir.folder("Desktop/Zoom-2.pkg/Contents")            // a package folder is fine
+        let environment = CleanEnvironment.testing(home: dir.url, installedApps: [app("Slack"), app("Zoom")])
+
+        let found = try await InstallersScanner().scan(environment)
+
+        #expect(paths(found) == ["Desktop/Slack-2.dmg", "Desktop/Zoom-2.pkg"])
+    }
+
+    @Test("Only apps you installed count: not Apple's, not helpers outside the Applications folders")
+    func installersOnlyForYourApps() async throws {
+        try installer("Downloads/Notes.dmg")
+        try installer("Downloads/Updater.pkg")
+        try installer("Downloads/Slack.dmg")
+        let environment = CleanEnvironment.testing(home: dir.url, installedApps: [
+            app("Notes", bundleID: "com.apple.Notes"),
+            app("Updater", in: "Library/Application Support/Vendor"),
+            app("Slack", bundleID: "com.tinyspeck.slackmacgap"),
+        ])
+
+        let found = try await InstallersScanner().scan(environment)
+
+        #expect(paths(found) == ["Downloads/Slack.dmg"])
     }
 
     // MARK: - Mail attachments
