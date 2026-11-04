@@ -137,6 +137,40 @@ struct GitStatusTests {
         #expect(snapshot(gitDir) == before)
     }
 
+    @Test("A repository's own config can't make reading it run commands", .enabled(if: git != nil))
+    func repositoryConfigRunsNothing() throws {
+        try makeRepository()
+        try dir.file("data.txt", bytes: 4)
+        try run(["add", "data.txt"])
+        try run(["commit", "-q", "-m", "data"])
+        let marker = dir.url.appending(path: "ran").path
+        let script = "sh -c 'touch \"\(marker)\"; cat'"
+        // Set only after committing, so setup itself never runs them.
+        try "*.txt filter=evil\n".write(to: dir.url.appending(path: ".gitattributes"), atomically: true, encoding: .utf8)
+        try run(["config", "filter.evil.clean", script])
+        try run(["config", "filter.evil.required", "true"])
+        try run(["config", "core.fsmonitor", "touch \"\(marker)\"; false"])
+        try Data(repeating: 0x41, count: 4).write(to: dir.url.appending(path: "data.txt"))   // stat-dirty, same content
+
+        let status = try #require(GitStatusReader.status(of: dir.url, git: Self.git))
+
+        #expect(!FileManager.default.fileExists(atPath: marker))
+        #expect(status.changes != nil)
+        // The trap is real: plain git status does run it.
+        try run(["status", "--porcelain"])
+        #expect(FileManager.default.fileExists(atPath: marker))
+    }
+
+    @Test("Filter drivers are read from config names, including dotted ones")
+    func filterDriverNames() {
+        let names = GitStatusReader.filterDrivers(configNames: "filter.lfs.clean\nfilter.lfs.process\nfilter.a.b.smudge\nfilter.x=y.clean\n")
+        #expect(names == ["lfs", "a.b"])
+        let arguments = GitStatusReader.statusArguments(root: URL(filePath: "/repo"), filterDrivers: ["lfs"])
+        #expect(arguments.contains("core.fsmonitor=false"))
+        #expect(arguments.contains("filter.lfs.clean=") && arguments.contains("filter.lfs.process="))
+        #expect(arguments.contains("--ignore-submodules=all"))
+    }
+
     @Test("Without git only the branch is shown")
     func noGitBinary() throws {
         let gitDir = try dir.folder(".git")

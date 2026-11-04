@@ -64,8 +64,38 @@ nonisolated enum GitStatusReader {
         return (String(head.prefix(7)), true)
     }
 
-    static func statusArguments(root: URL) -> [String] {
-        ["--no-optional-locks", "-C", root.path, "status", "--porcelain=v1", "--untracked-files=normal"]
+    /// A folder's repository config is untrusted (a downloaded project can set anything), and
+    /// `git status` would run some of it: the `core.fsmonitor` hook, and clean filters for
+    /// files whose stat info changed. Both are switched off, and submodules (with configs of
+    /// their own) aren't entered. `-c` settings also reach any git that git starts.
+    static func statusArguments(root: URL, filterDrivers: [String] = []) -> [String] {
+        var arguments = ["--no-optional-locks", "-c", "core.fsmonitor=false"]
+        for driver in filterDrivers {
+            arguments += [
+                "-c", "filter.\(driver).clean=", "-c", "filter.\(driver).process=",
+                "-c", "filter.\(driver).required=false",
+            ]
+        }
+        return arguments + [
+            "-C", root.path, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all",
+        ]
+    }
+
+    /// Lists config names only; reading config never runs anything.
+    static func filterConfigArguments(root: URL) -> [String] {
+        ["--no-optional-locks", "-C", root.path, "config", "--name-only", "--get-regexp", "^filter\\."]
+    }
+
+    /// Driver names from `filter.<driver>.<key>` config names. Names with "=" are left out:
+    /// they can't be overridden with `-c`, and status then fails safely instead.
+    static func filterDrivers(configNames: String) -> [String] {
+        var drivers: [String] = []
+        for line in configNames.split(whereSeparator: \.isNewline) {
+            guard line.hasPrefix("filter."), let lastDot = line.lastIndex(of: ".") else { continue }
+            let name = String(line[line.index(line.startIndex, offsetBy: "filter.".count)..<lastDot])
+            if !name.isEmpty, !name.contains("="), !drivers.contains(name) { drivers.append(name) }
+        }
+        return drivers
     }
 
     static func changeCount(porcelain: String) -> Int {
@@ -81,9 +111,19 @@ nonisolated enum GitStatusReader {
     }
 
     private static func runStatus(git: URL, root: URL, timeout: TimeInterval) -> Int? {
+        // `--get-regexp` exits with 1 when nothing matches: no filters.
+        let names = run(git, filterConfigArguments(root: root), timeout: timeout, acceptedStatuses: [0, 1]) ?? ""
+        let arguments = statusArguments(root: root, filterDrivers: filterDrivers(configNames: names))
+        return run(git, arguments, timeout: timeout).map { changeCount(porcelain: $0) }
+    }
+
+    /// Runs git and returns its output, or `nil` on failure or timeout.
+    private static func run(
+        _ git: URL, _ arguments: [String], timeout: TimeInterval, acceptedStatuses: Set<Int32> = [0]
+    ) -> String? {
         let process = Process()
         process.executableURL = git
-        process.arguments = statusArguments(root: root)
+        process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["GIT_TERMINAL_PROMPT"] = "0"
@@ -103,7 +143,7 @@ nonisolated enum GitStatusReader {
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else { return nil }
-        return changeCount(porcelain: String(decoding: data, as: UTF8.self))
+        guard process.terminationReason == .exit, acceptedStatuses.contains(process.terminationStatus) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 }
