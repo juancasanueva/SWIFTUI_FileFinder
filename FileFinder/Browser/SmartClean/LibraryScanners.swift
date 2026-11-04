@@ -14,7 +14,7 @@ nonisolated struct BigFilesScanner: SuggestionScanner {
         var found: [CleanCandidate] = []
         try CleanWalker.regularFiles(in: roots, minimumSize: minimumSize) { url, size in
             let opened = environment.lastOpened(url)
-                .map { "opened \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "never opened"
+                .map { "opened \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "last opened unknown"
             found.append(CleanCandidate(url: url, bytes: size, detail: "\(StatusText.formatBytes(size)) · \(opened)"))
         }
         return found.sorted { $0.bytes > $1.bytes }
@@ -72,10 +72,11 @@ nonisolated struct LeftoversScanner: SuggestionScanner {
                 options: [.skipsHiddenFiles])) ?? []
             for child in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 try Task.checkCancellation()
+                let cutoff = environment.now.addingTimeInterval(-Self.unchangedInterval)
                 guard let id = Self.bundleID(of: child, requiredExtension: folder.requiredExtension),
-                      !Self.belongsToInstalledApp(id, installed: installed),
-                      let changed = Self.newestModification(of: child),
-                      environment.now.timeIntervalSince(changed) > Self.unchangedInterval else { continue }
+                      !Self.isProtected(id, installed: installed),
+                      let changed = Self.newestModification(of: child, stoppingAt: cutoff),
+                      changed < cutoff else { continue }
                 found.append(CleanCandidate(
                     url: child, bytes: CleanWalker.size(of: child),
                     detail: "\(folder.name) of “\(id)”, an app that isn't installed"))
@@ -104,35 +105,53 @@ nonisolated struct LeftoversScanner: SuggestionScanner {
         }
     }
 
-    /// Apple's, an installed app's (same id, a helper below it, or the same vendor.product).
-    static func belongsToInstalledApp(_ id: String, installed: Set<String>) -> Bool {
+    /// Ids of shared tools, SDKs and frameworks that many apps embed or that live outside any
+    /// app folder: their data isn't one deleted app's. Matched as prefixes, case-insensitively.
+    static let sharedComponentPrefixes = [
+        "org.cups.", "org.swift.", "org.chromium.", "org.sparkle-project.", "com.android.", "com.github.electron",
+        "com.google.keystone", "com.microsoft.autoupdate", "com.squirrel.", "com.crashlytics", "com.onevcat.",
+        "com.breakpad.", "com.segment.", "com.telemetrydeck.", "com.install4j.", "com.yourcompany.",
+        "com.example.", "org.example.",
+    ]
+
+    /// Kept unless it clearly belongs to a deleted app: Apple's and the OS's data (any id with
+    /// "com.apple." in it, app-group and system-group ids), shared components, and anything of
+    /// a vendor (first two parts, such as "com.google") with an installed app, which covers
+    /// helpers, agents and updaters whatever they are called.
+    static func isProtected(_ id: String, installed: Set<String>) -> Bool {
         let id = id.lowercased()
-        if id.hasPrefix("com.apple.") || installed.contains(id) { return true }
-        let vendorProduct = id.split(separator: ".").prefix(3).joined(separator: ".")
-        return installed.contains { app in
-            if id.hasPrefix(app + ".") { return true }
-            let parts = app.split(separator: ".")
-            return parts.count >= 3 && parts.prefix(3).joined(separator: ".") == vendorProduct
+        if id.hasPrefix("com.apple.") || id.contains(".com.apple.") || id.hasPrefix("group.") || id.hasPrefix("systemgroup.") {
+            return true
         }
+        if sharedComponentPrefixes.contains(where: id.hasPrefix) || installed.contains(id) { return true }
+        let installedVendors = Set(installed.map(vendor))
+        return installedVendors.contains(vendor(of: id))
     }
 
-    /// The entry's own modification date, or for a folder the newest of it and its direct children.
-    /// `nil` when unreadable, so the entry is kept.
-    static func newestModification(of url: URL) -> Date? {
-        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey]
-        guard let values = try? url.resourceValues(forKeys: keys), let own = values.contentModificationDate else {
-            return nil
-        }
-        if values.isSymbolicLink == true { return nil }   // a link isn't the app's data: keep it
-        guard values.isDirectory == true else { return own }
-        guard let children = try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return nil }
+    /// "com.google.Chrome" → "com.google".
+    static func vendor(of id: String) -> String {
+        id.lowercased().split(separator: ".").prefix(2).joined(separator: ".")
+    }
+
+    /// The newest modification date anywhere in the entry (a database rewritten deep inside counts),
+    /// stopping early once one is at or after `cutoff`. `nil` when something is unreadable or the
+    /// entry is a link, so the entry is kept.
+    static func newestModification(of url: URL, stoppingAt cutoff: Date) -> Date? {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey]
+        guard let values = try? url.resourceValues(forKeys: Set(keys)), let own = values.contentModificationDate,
+              values.isSymbolicLink != true else { return nil }
+        guard values.isDirectory == true, own < cutoff else { return own }
         var newest = own
-        for child in children {
+        var unreadable = false
+        let enumerator = FileManager.default.enumerator(
+            at: url, includingPropertiesForKeys: [.contentModificationDateKey], options: [],
+            errorHandler: { _, _ in unreadable = true; return true })
+        while let child = enumerator?.nextObject() as? URL {
             guard let date = try? child.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             else { return nil }
             newest = max(newest, date)
+            if newest >= cutoff { return newest }
         }
-        return newest
+        return unreadable ? nil : newest
     }
 }

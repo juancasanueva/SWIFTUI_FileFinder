@@ -76,7 +76,7 @@ struct LibraryScannersTests {
 
         let detail = Dictionary(uniqueKeysWithValues: found.map { ($0.url.lastPathComponent, $0.detail) })
         #expect(detail["opened.mov"] == "\(StatusText.formatBytes(200)) · opened \(opened.formatted(date: .abbreviated, time: .omitted))")
-        #expect(detail["never.mov"] == "\(StatusText.formatBytes(300)) · never opened")
+        #expect(detail["never.mov"] == "\(StatusText.formatBytes(300)) · last opened unknown")
     }
 
     @Test("Big files: missing user folders are skipped")
@@ -207,17 +207,19 @@ struct LibraryScannersTests {
     @Test("Leftovers: a helper of an installed app (its id as a dotted prefix) is kept")
     func leftoversHelperID() async throws {
         try leftover("Application Support/com.foo.App.helper")
-        try leftover("Caches/com.foo.AppX")   // not at a dot boundary, and a different product
+        try leftover("Caches/com.foo.AppX")   // same vendor: kept too (helpers are often named freely)
+        try leftover("Caches/com.bar.App")    // another vendor with nothing installed: listed
         let found = try await LeftoversScanner().scan(environment(installed: ["com.foo.App"]))
-        #expect(names(found) == ["com.foo.AppX"])
+        #expect(names(found) == ["com.bar.App"])
     }
 
-    @Test("Leftovers: an id sharing an installed app's vendor.product is kept")
+    @Test("Leftovers: any id of an installed app's vendor is kept")
     func leftoversSameVendorProduct() async throws {
         try leftover("Caches/com.foo.Suite.Helper")
-        try leftover("Caches/com.foo.Other")   // same vendor, other product
+        try leftover("Caches/com.foo.Other")   // same vendor, other product: kept
+        try leftover("Caches/org.gone.Editor")  // nothing of this vendor installed: listed
         let found = try await LeftoversScanner().scan(environment(installed: ["com.foo.Suite.Mac"]))
-        #expect(names(found) == ["com.foo.Other"])
+        #expect(names(found) == ["org.gone.Editor"])
     }
 
     @Test("Leftovers: Apple's ids are kept, whatever their case")
@@ -277,5 +279,93 @@ struct LibraryScannersTests {
         try leftover("Preferences/com.juancasanueva.FileFinder.plist", folder: false)
         let found = try await LeftoversScanner().scan(environment())
         #expect(found.isEmpty)
+    }
+}
+
+@MainActor
+@Suite("Leftovers never list OS, installed-app or shared-tool data")
+struct LeftoversSafetyTests {
+    let dir: TemporaryDirectory
+    static let now = Date(timeIntervalSince1970: 1_793_804_400)
+
+    init() throws {
+        dir = try TemporaryDirectory()
+    }
+
+    private func date(daysAgo: Double) -> Date { Self.now.addingTimeInterval(-daysAgo * 86_400) }
+
+    /// Creates `Library/<path>` (a folder with one file inside, or a .plist file), all dated
+    /// `daysAgo`, and returns the names the scanner lists.
+    private func listed(_ path: String, installed: [String], daysAgo: Double = 90) async throws -> [String] {
+        let url = dir.url.appending(path: "Library/\(path)")
+        let fileManager = FileManager.default
+        if url.pathExtension == "plist" {
+            try dir.file("Library/\(path)", bytes: 8)
+        } else {
+            let inner = try dir.file("Library/\(path)/data.bin", bytes: 8)
+            try fileManager.setAttributes([.modificationDate: date(daysAgo: daysAgo)], ofItemAtPath: inner.path)
+        }
+        try fileManager.setAttributes([.modificationDate: date(daysAgo: daysAgo)], ofItemAtPath: url.path)
+        let apps = installed.map {
+            InstalledApp(url: dir.url.appending(path: "Applications/\($0).app"), name: $0, bundleID: $0)
+        }
+        let environment = CleanEnvironment.testing(home: dir.url, now: Self.now, installedApps: apps)
+        return try await LeftoversScanner().scan(environment).map(\.url.lastPathComponent)
+    }
+
+    @Test("Apple's and the OS's own data is never a leftover", arguments: [
+        "Preferences/group.com.apple.mail.plist", "Preferences/org.cups.PrintingPrefs.plist",
+        "Caches/group.com.apple.notes", "Caches/systemgroup.com.apple.configurationprofiles",
+    ])
+    func appleData(path: String) async throws {
+        #expect(try await listed(path, installed: []).isEmpty)
+    }
+
+    @Test("Data of an installed app's vendor (helpers, agents, updaters) is kept", arguments: [
+        ("Preferences/com.google.Keystone.Agent.plist", "com.google.Chrome"),
+        ("Caches/com.microsoft.autoupdate2", "com.microsoft.Word"),
+        ("Application Support/com.docker.helper", "com.docker.docker"),
+        ("Application Support/com.raycast.shared", "com.raycast.macos"),
+    ])
+    func sameVendor(path: String, installed: String) async throws {
+        #expect(try await listed(path, installed: [installed]).isEmpty)
+    }
+
+    @Test("Shared tools and SDK components (not one app's) are kept", arguments: [
+        "HTTPStorages/com.github.Electron", "Preferences/com.android.Emulator.plist", "Caches/org.swift.swiftpm",
+        "Caches/com.crashlytics.data", "Caches/com.onevcat.Kingfisher.ImageCache.default",
+        "Preferences/com.Breakpad.crash_report_sender.plist", "Preferences/com.install4j.installations.plist",
+        "Caches/com.segment.storage.abc", "Caches/com.telemetrydeck.cache", "Preferences/com.yourcompany.installerbase.plist",
+        "Caches/org.sparkle-project.Sparkle",
+    ])
+    func sharedComponents(path: String) async throws {
+        #expect(try await listed(path, installed: ["com.spotify.client"]).isEmpty)
+    }
+
+    @Test("A file changed deep inside an entry means it's still in use")
+    func deepChange() async throws {
+        let entry = dir.url.appending(path: "Library/Application Support/com.vendor.product")
+        let db = try dir.file("Library/Application Support/com.vendor.product/Data/db.sqlite", bytes: 8)
+        let fileManager = FileManager.default
+        try fileManager.setAttributes([.modificationDate: date(daysAgo: 1)], ofItemAtPath: db.path)
+        try fileManager.setAttributes([.modificationDate: date(daysAgo: 90)], ofItemAtPath: entry.appending(path: "Data").path)
+        try fileManager.setAttributes([.modificationDate: date(daysAgo: 90)], ofItemAtPath: entry.path)
+        let environment = CleanEnvironment.testing(home: dir.url, now: Self.now)
+
+        #expect(try await LeftoversScanner().scan(environment).isEmpty)
+    }
+
+    @Test("Data of a really deleted app is still listed")
+    func realLeftover() async throws {
+        #expect(try await listed("Application Support/com.operasoftware.Opera", installed: ["com.google.Chrome"])
+            == ["com.operasoftware.Opera"])
+    }
+
+    @Test("Apps are found deeper, such as vendor folders in Application Support, without entering apps")
+    func deeperAppDiscovery() throws {
+        try dir.folder("Root/Vendor/Sub/Tool.app/Contents")
+        try dir.folder("Root/Outer.app/Contents/Helpers/Inner.app")
+        let apps = CleanEnvironment.findApps(in: [dir.url.appending(path: "Root")], maxDepth: 3)
+        #expect(Set(apps.map(\.name)) == ["Tool", "Outer"])
     }
 }

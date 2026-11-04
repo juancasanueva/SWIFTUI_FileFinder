@@ -133,27 +133,33 @@ nonisolated struct CleanEnvironment: Sendable {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
         let userApps = [URL(filePath: "/Applications"), home.appending(path: "Applications")]
-        let systemApps = [URL(filePath: "/System/Applications")]
+        // Everywhere apps and their helpers live, so their data isn't taken for leftovers.
+        let installed = findApps(in: userApps, maxDepth: 3)
+            + findApps(in: [URL(filePath: "/System/Applications")], maxDepth: 1)
+            + findApps(in: [URL(filePath: "/Library/Application Support"), home.appending(path: "Library/Application Support")], maxDepth: 4)
         return CleanEnvironment(
             home: home, applicationFolders: userApps, now: .now,
-            installedApps: findApps(in: userApps + systemApps), ownBundleID: Bundle.main.bundleIdentifier,
+            installedApps: installed, ownBundleID: Bundle.main.bundleIdentifier,
             lastOpened: { spotlightValue($0, kMDItemLastUsedDate) as? Date },
             isScreenCapture: { (spotlightValue($0, "kMDItemIsScreenCapture" as CFString) as? Bool) == true })
     }
 
-    /// .app bundles in `folders` and one level of sub-folders (such as Utilities).
-    static func findApps(in folders: [URL]) -> [InstalledApp] {
+    /// .app bundles in `folders`, entering up to `maxDepth` levels of sub-folders (such as
+    /// Utilities or a vendor folder) but never an app itself.
+    static func findApps(in folders: [URL], maxDepth: Int = 1) -> [InstalledApp] {
         var apps: [InstalledApp] = []
         func visit(_ folder: URL, depth: Int) {
+            let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
             let children = (try? FileManager.default.contentsOfDirectory(
-                at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
+                at: folder, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])) ?? []
             for child in children {
                 if child.pathExtension == "app" {
                     apps.append(InstalledApp(
                         url: child.canonical, name: child.deletingPathExtension().lastPathComponent,
                         bundleID: Bundle(url: child)?.bundleIdentifier))
-                } else if depth == 0, (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    visit(child, depth: 1)
+                } else if depth < maxDepth, let values = try? child.resourceValues(forKeys: keys),
+                          values.isDirectory == true, values.isSymbolicLink != true {
+                    visit(child, depth: depth + 1)
                 }
             }
         }
