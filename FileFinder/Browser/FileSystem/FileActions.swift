@@ -275,6 +275,49 @@ final class FileActions {
         }
     }
 
+    // MARK: - Tidy
+
+    /// Moves each group's files into its kind folder, creating missing folders, as one undo
+    /// step. Files no longer where the plan saw them are skipped; a clash keeps both. Undo moves
+    /// everything back and trashes the folders this created while they are still empty.
+    @discardableResult
+    func tidy(_ plan: TidyPlan) async throws -> [URL] {
+        try await serialized {
+            let fileManager = FileManager.default
+            var created: [URL] = []
+            var transfers: [FileTransfer] = []
+            var setupError: (any Error)?
+            for group in plan.groups {
+                let sources = group.files.filter {
+                    fileManager.fileExists(atPath: $0.path) && Self.isSameFolder($0.deletingLastPathComponent(), plan.folder)
+                }
+                guard !sources.isEmpty else { continue }
+                var isDirectory: ObjCBool = false
+                if fileManager.fileExists(atPath: group.folder.path, isDirectory: &isDirectory) {
+                    guard isDirectory.boolValue else { continue }   // a file took the name since the preview
+                } else {
+                    do {
+                        try await Self.performCreateFolder(group.folder)
+                        created.append(group.folder)
+                    } catch {
+                        setupError = error
+                        break
+                    }
+                }
+                transfers += try await Self.resolvedPlan(sources, into: group.folder, copying: false, resolver: nil).transfers
+            }
+            let result = await Self.performMoves(transfers)
+            // Folders first, so undo (which runs in reverse) moves the files out before checking
+            // whether the folders are empty.
+            self.registerAsOneStep(if: !created.isEmpty || !result.done.isEmpty) {
+                for folder in created { self.registerNewFolderUndo(folder, actionName: "Tidy", reuseExisting: true) }
+                if !result.done.isEmpty { self.registerRelocationUndo("Tidy", result.done) }
+            }
+            if let error = setupError ?? result.error { throw error }
+            return result.done.map(\.to)
+        }
+    }
+
     // MARK: - Trash
 
     func trash(_ urls: [URL]) async throws {
@@ -367,19 +410,26 @@ final class FileActions {
         }
     }
 
-    /// Undoing New Folder trashes the folder, but only while it is still empty.
-    private func registerNewFolderUndo(_ url: URL) {
-        registerUndo("New Folder") { actions in
-            actions.registerRecreateFolderUndo(url)
+    /// Undoing New Folder trashes the folder, but only while it is still empty. With
+    /// `reuseExisting`, redo accepts a folder that is still there (Tidy: undo left it because
+    /// something else was put in it) instead of reporting it.
+    private func registerNewFolderUndo(_ url: URL, actionName: String = "New Folder", reuseExisting: Bool = false) {
+        registerUndo(actionName) { actions in
+            actions.registerRecreateFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
             actions.enqueue { await Self.performTrashIfEmpty(url) }
         }
     }
 
-    private func registerRecreateFolderUndo(_ url: URL) {
-        registerUndo("New Folder") { actions in
-            actions.registerNewFolderUndo(url)
+    private func registerRecreateFolderUndo(_ url: URL, actionName: String, reuseExisting: Bool) {
+        registerUndo(actionName) { actions in
+            actions.registerNewFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
             actions.enqueue {
                 do {
+                    var isDirectory: ObjCBool = false
+                    if reuseExisting, FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                       isDirectory.boolValue {
+                        return BatchResult()
+                    }
                     try await Self.performCreateFolder(url)
                     return BatchResult()
                 } catch {
