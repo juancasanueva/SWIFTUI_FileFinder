@@ -21,6 +21,13 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("o")
                 .disabled(!hasSelection || isTyping)
             Divider()
+            // Listed before the View menu, so it wins ⌥⌘T over Show/Hide Toolbar.
+            Button("Tidy This Folder…") { Task { await browser?.prepareTidy() } }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(!(browser?.canTidy ?? false) || isTyping)
+            Button("Tidy Downloads…") { Task { await browser?.tidyDownloads() } }
+                .disabled(browser == nil || isTyping)
+            Divider()
             Button("Copy to Other Pane") { Task { await window?.copyToOtherPane() } }
                 .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
                 .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)

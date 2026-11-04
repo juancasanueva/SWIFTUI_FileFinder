@@ -38,7 +38,7 @@ nonisolated enum FileKind: String, CaseIterable, Sendable {
 }
 
 /// What Tidy will do to one folder: which loose files go into which kind folder.
-nonisolated struct TidyPlan: Equatable, Sendable {
+nonisolated struct TidyPlan: Identifiable, Equatable, Sendable {
     struct Group: Identifiable, Equatable, Sendable {
         let kind: FileKind
         /// `<folder>/<Kind>`, in the real letter case when the folder already exists.
@@ -54,6 +54,7 @@ nonisolated struct TidyPlan: Equatable, Sendable {
     /// Kinds left out because a file already has their folder's name.
     let blockedKinds: [FileKind]
 
+    var id: URL { folder }
     var fileCount: Int { groups.reduce(0) { $0 + $1.files.count } }
     var isEmpty: Bool { groups.isEmpty }
 

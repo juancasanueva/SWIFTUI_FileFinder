@@ -264,6 +264,7 @@ final class BrowserModel {
         }
         missingEntries = []
         entryIDs = [:]
+        tidyPreview = nil
         selection = []
         renamingURL = nil
         quickLookURL = nil
@@ -642,6 +643,48 @@ final class BrowserModel {
         } catch {
             alertMessage = error.localizedDescription
         }
+    }
+
+    // MARK: Tidy
+
+    /// A tidy plan waiting for the user's go-ahead (shown as a sheet). Nothing moves before then.
+    private(set) var tidyPreview: TidyPlan?
+    /// A workspace isn't a folder: there is nothing loose to tidy.
+    var canTidy: Bool { !isShowingWorkspace }
+
+    /// Works out what tidying the current folder would do and shows it (⌥⌘T).
+    func prepareTidy() async {
+        guard canTidy else { return }
+        let folder = currentFolder
+        do {
+            let plan = try await Self.makeTidyPlan(for: folder)
+            guard folder == currentFolder, canTidy else { return }
+            tidyPreview = plan
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    /// Opens Downloads and shows its tidy plan.
+    func tidyDownloads(home: URL = FileManager.default.homeDirectoryForCurrentUser) async {
+        navigate(to: home.appending(path: "Downloads"))
+        await prepareTidy()
+    }
+
+    /// Carries out the previewed plan, then selects the kind folders.
+    func confirmTidy() async {
+        guard let plan = tidyPreview else { return }
+        tidyPreview = nil
+        await perform {
+            try await actions.tidy(plan)
+            if plan.folder == currentFolder, !isShowingWorkspace { selection = Set(plan.groups.map(\.folder)) }
+        }
+    }
+
+    func cancelTidy() { tidyPreview = nil }
+
+    @concurrent private nonisolated static func makeTidyPlan(for folder: URL) async throws -> TidyPlan {
+        try TidyPlan.make(for: folder)
     }
 
     // MARK: Drag and drop

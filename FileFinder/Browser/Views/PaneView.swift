@@ -136,6 +136,12 @@ private struct PaneBehavior: ViewModifier {
             .sheet(item: Binding(get: { model.pendingConflict }, set: { _ in })) { conflict in
                 ConflictSheet(conflict: conflict) { model.answerConflict($0) }
             }
+            .sheet(item: Binding(get: { model.tidyPreview }, set: { if $0 == nil { model.cancelTidy() } })) { plan in
+                TidySheet(
+                    plan: plan,
+                    onTidy: { Task { await model.confirmTidy() } },
+                    onCancel: model.cancelTidy)
+            }
             .alert(
                 "The operation couldn't be completed.",
                 isPresented: Binding(get: { model.alertMessage != nil }, set: { if !$0 { model.alertMessage = nil } }),

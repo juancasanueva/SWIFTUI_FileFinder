@@ -187,6 +187,72 @@ struct TidyTests {
         #expect(reported.count == 1)
     }
 
+    // MARK: - Pane
+
+    private func makePane(start: URL? = nil) throws -> BrowserModel {
+        let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+        let store = WorkspaceStore(fileURL: dir.url.appending(path: ".store/workspaces.json"))
+        return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults, workspaces: store)
+    }
+
+    @Test("Nothing moves until the previewed plan is confirmed; then the kind folders are selected")
+    func paneShowsPlanFirst() async throws {
+        try dir.file("a.jpg")
+        try dir.file("b.pdf")
+        let pane = try makePane()
+        await pane.reload()
+
+        await pane.prepareTidy()
+
+        let plan = try #require(pane.tidyPreview)
+        #expect(plan.fileCount == 2)
+        #expect(exists("a.jpg") && !exists("Images"))
+
+        await pane.confirmTidy()
+
+        #expect(pane.tidyPreview == nil)
+        #expect(exists("Images/a.jpg") && exists("PDFs/b.pdf"))
+        #expect(pane.items.map(\.name).sorted() == ["Images", "PDFs"])
+        #expect(pane.selection == Set(plan.groups.map(\.folder)))
+    }
+
+    @Test("Cancelling the preview moves nothing")
+    func paneCancel() async throws {
+        try dir.file("a.jpg")
+        let pane = try makePane()
+        await pane.prepareTidy()
+
+        pane.cancelTidy()
+        await pane.confirmTidy()
+
+        #expect(pane.tidyPreview == nil)
+        #expect(exists("a.jpg") && !exists("Images"))
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("Tidy isn't offered in a workspace")
+    func paneWorkspace() async throws {
+        try dir.file("a.jpg")
+        let pane = try makePane()
+        let workspace = pane.workspaces.create(named: "W")
+        await pane.openWorkspace(workspace.id)
+
+        #expect(!pane.canTidy)
+        await pane.prepareTidy()
+        #expect(pane.tidyPreview == nil)
+    }
+
+    @Test("Tidy Downloads opens Downloads and shows its plan")
+    func paneTidyDownloads() async throws {
+        try dir.file("Downloads/Setup.dmg")
+        let pane = try makePane()
+
+        await pane.tidyDownloads(home: dir.url)
+
+        #expect(pane.currentFolder == dir.url.appending(path: "Downloads").canonical)
+        #expect(pane.tidyPreview?.groups.map(\.kind) == [.installers])
+    }
+
     @Test("Tidying an empty plan does nothing and adds no undo step")
     func emptyTidy() async throws {
         let moved = try await actions.tidy(try TidyPlan.make(for: dir.url))

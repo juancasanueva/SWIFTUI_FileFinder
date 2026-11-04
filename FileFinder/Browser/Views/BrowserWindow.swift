@@ -84,6 +84,11 @@ private struct BrowserWindowContent: View {
             .help("Split into two panes (⌘D)")
         }
         ToolbarItem {
+            Button("Tidy", systemImage: "sparkles") { Task { await active.prepareTidy() } }
+                .disabled(!active.canTidy)
+                .help("Tidy loose files into folders by kind, with a preview first (⌥⌘T)")
+        }
+        ToolbarItem {
             Button("Preview", systemImage: "sidebar.right") { active.showPreview.toggle() }
                 .help("Show or hide the preview pane (⇧⌘P)")
         }
