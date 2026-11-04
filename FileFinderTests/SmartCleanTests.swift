@@ -654,6 +654,55 @@ struct SmartCleanTests {
         #expect(exists(".Trash/Full/a.txt"))
     }
 
+    @Test("A parent check midway saying the folder is gone is reported, never ignored")
+    func parentGoneMidway() async throws {
+        for index in 0..<10 { try dir.file(".Trash/Box/f\(index)", bytes: 1) }
+        let boxInode = inode(of: dir.url.appending(path: ".Trash/Box"))
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, boxInode), checks.next() >= 5 { return .failure(FileActions.SystemCallError(code: ENOENT)) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Box” couldn’t be removed."
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash/Box").path).count == 7)
+    }
+
+    @Test("A path into the Trash spelled through a link or in other letter case still counts as the Trash")
+    func trashSpelledDifferently() async throws {
+        let first = try dir.file("a.txt", bytes: 1)
+        let second = try dir.file("b.txt", bytes: 1)
+        let alias = dir.url.appending(path: "TrashAlias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: dir.url.appending(path: ".Trash"))
+        _ = try await actions.copy([first], into: alias)
+        _ = try await actions.copy([second], into: dir.url.appending(path: ".TRASH"))
+        #expect(exists(".Trash/a.txt") && exists(".Trash/b.txt"))
+
+        actions.dropTrashUndo()
+
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("A folder whose ancestor is moved out of the Trash mid-empty stops being emptied within 64 items")
+    func ancestorMovedOut() async throws {
+        for index in 0..<200 { try dir.file(".Trash/Top/Mid/Deep/f\(index)", bytes: 1) }
+        let mid = dir.url.appending(path: ".Trash/Top/Mid")
+        let rescued = try dir.folder("Desktop").appending(path: "Mid")
+        let deepInode = inode(of: mid.appending(path: "Deep"))
+        let checks = Counter()
+        // Mid (neither the top-level folder nor Deep's parent check would notice) goes after 3 of Deep's files.
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, deepInode), checks.next() == 5 { try? FileManager.default.moveItem(at: mid, to: rescued) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect(throws: FileActionError.movedWhileEmptying("Deep")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "Deep").path).count >= 200 - 64)
+    }
+
     @Test("A folder whose listing fails is kept with that failure")
     func listingFailureReported() async throws {
         try dir.file(".Trash/Box/a.txt", bytes: 1)

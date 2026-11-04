@@ -57,6 +57,10 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T25 S6 — L39 R3-002: any failure of a folder's ".." check is reported as that failure (an empty folder is still deleted), never as "was moved" — inline — (this commit) (RED by mutation: the old EACCES-only handling fails the test with 2 issues; GREEN 333 ×2)
 - [x] T26 S6 — L39 R3-003: the walk's listing and ".." check are injectable (TrashWalk), and a test pins a listing failure's own error — inline — (this commit) (new coverage: listing failures already kept their code since T23, so no RED)
 - [x] T27 S6 — L39 R4-001/R3-001: the moved-out test moves the folder from inside the walk at a fixed point, so it no longer depends on thread timing — inline — (this commit) (test only; exact count; -test-iterations does not repeat Swift Testing tests, so the 20-run proof is the verifier's loop in L41)
+- [x] T28 S6 — L43 R3-002: a test pins ENOENT on the mid-walk parent check (reported, never ignored) — inline — (this commit) (pin: the mapping existed since L42, so no RED)
+- [x] T29 S6 — L32 A4: a path into the Trash spelled through a link or in other letter case counts as the Trash (compared by folder identity) — inline — (this commit) (RED→GREEN; a first version looped forever at the root, fixed before commit)
+- [x] T30 S6 — L36/L41 ancestor limitation: a folder whose ancestor was moved out of the Trash stops being emptied promptly (top-level entry checked before every deletion; the whole chain on entering a folder and every 64 entries) — inline — (this commit) (RED→GREEN: the moved Mid's Deep was emptied; now ≥ 136 of 200 survive)
+- [x] T31 S6 — L32 A3: no Sendable warnings for the trasher and copier (nonisolated stored closures) — inline — (this commit) (build: 11 FileActions warnings → 0; full suite 338 ×2)
 
 ## Log
 
@@ -133,3 +137,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - L43 Native review of T25–T27 + L42 (base 904c837, committed-only, escalated item 1; lenses risk/resilience/reliability; consent granted): approved, acknowledged (review-9cc18911225178ef). Non-blocking advisories:
   - R3-001 A failed parent check midway ends the walk with chain.removeAll() and might leak descriptors — checked, no issue: the chain holds no descriptors; the only open one, `current`, is closed by the function's defer, the same as on the moved path.
   - R3-002 No test injects ENOENT on the mid-walk check (its ENOENT→EIO mapping); only the entering check's is pinned.
+- L44 2026-11-04 User: "fix the remaining Smart Clean leftovers". Branch `fix/smart-clean-leftovers` from `main` (bae3c33). Leftovers: L43 R3-002 (test), L32 A4 (path text), the ancestor-moved limitation (L36, L41), L32 A3 (Sendable warnings). Planned as T28–T31, inline.

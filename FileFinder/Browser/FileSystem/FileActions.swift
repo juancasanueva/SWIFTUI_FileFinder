@@ -149,13 +149,13 @@ final class FileActions {
         _ progress: @escaping @Sendable (Int64) -> Void, _ shouldCancel: @escaping @Sendable () -> Bool
     ) throws -> Void
 
-    @ObservationIgnored private let copier: Copier
+    @ObservationIgnored nonisolated private let copier: Copier
     /// Bytes per item, measured before a copy for the progress bar.
     typealias SizeMeasurer = @Sendable ([URL]) async -> [Int64]
     @ObservationIgnored private let measureSizes: SizeMeasurer
     /// Moves one item to the Trash and returns where it went (`nil` when unknown).
     typealias Trasher = @Sendable (URL) throws -> URL?
-    @ObservationIgnored private let trasher: Trasher
+    @ObservationIgnored nonisolated private let trasher: Trasher
     /// The Trash that `trasher` fills and Empty Trash empties. Only paths inside it count as
     /// the Trash; other folders named ".Trash" and other volumes' ".Trashes" don't.
     let trashFolder: URL
@@ -446,6 +446,13 @@ final class FileActions {
             (device, inode) = (info.st_dev, info.st_ino)
         }
 
+        /// The folder at `child`, relative to the open folder; a final link isn't followed.
+        init?(of descriptor: Int32, child: UnsafePointer<CChar>) {
+            var info = stat()
+            guard fstatat(descriptor, child, &info, AT_SYMLINK_NOFOLLOW) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+            (device, inode) = (info.st_dev, info.st_ino)
+        }
+
         /// The identity of the open folder's parent (".."), or why it can't be read.
         static func parent(of descriptor: Int32) -> Result<FolderIdentity, SystemCallError> {
             var info = stat()
@@ -488,6 +495,18 @@ final class FileActions {
         func pathOf(_ name: [CChar]?, depth: Int) -> String {
             ([path] + chain.prefix(depth).dropFirst().map { displayName($0.name) } + [name.map(displayName)].compactMap { $0 })
                 .joined(separator: "/")
+        }
+        // Whether chain[index]'s grandparent and every folder above are still the recorded ones,
+        // read through "../.." and so on (never a link). An ancestor that can't be read is
+        // left to the checks made when climbing back.
+        func ancestorsInPlace(_ index: Int) -> Bool {
+            var relative = ".."
+            for level in stride(from: index - 2, through: -1, by: -1) {
+                relative += "/.."
+                guard relative.utf8.count < Int(PATH_MAX), let found = FolderIdentity(of: current, child: relative) else { return true }
+                if found != (level < 0 ? trashIdentity : chain[level].identity) { return false }
+            }
+            return true
         }
         // Stops emptying this entry: part of it was moved.
         func stopMoved() {
@@ -550,6 +569,14 @@ final class FileActions {
                 continue
             case .success:
                 break
+            }
+            // An ancestor moved out takes this folder along without changing its parent: check
+            // the top-level folder before every deletion, and every ancestor on entering a
+            // folder and every 64 entries.
+            if last > 0, FolderIdentity(of: trash, child: chain[0].name) != chain[0].identity
+                || (chain[last].next % 64 == 0 && !ancestorsInPlace(last)) {
+                stopMoved()
+                continue
             }
             if chain[last].next < chain[last].entries.count {
                 let child = chain[last].entries[chain[last].next]
@@ -672,8 +699,20 @@ final class FileActions {
 
     /// Whether `url` is inside `trashFolder`, the Trash that Empty Trash empties; another
     /// folder named ".Trash" or another volume's `.Trashes` isn't emptied, so its steps keep working.
+    /// Compared by folder identity, so a path spelled through a link or in other letter case
+    /// counts too.
     private func isInTrash(_ url: URL) -> Bool {
-        url.canonical.path.hasPrefix(trashFolder.path + "/")
+        if url.canonical.path.hasPrefix(trashFolder.path + "/") { return true }
+        var trash = stat()
+        guard stat(trashFolder.path, &trash) == 0 else { return false }
+        // The parent with its links resolved, then each of its folders up to the root.
+        var folder = url.deletingLastPathComponent().resolvingSymlinksInPath()
+        while true {
+            var info = stat()
+            if stat(folder.path, &info) == 0, info.st_dev == trash.st_dev, info.st_ino == trash.st_ino { return true }
+            if folder.pathComponents.count <= 1 { return false }   // the root
+            folder = folder.deletingLastPathComponent()
+        }
     }
 
     /// Undo and redo hand each other a record of what their disk work really moved, so a step
