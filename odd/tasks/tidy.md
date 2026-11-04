@@ -16,12 +16,16 @@ Quoted from the reference site (fileosmac.com):
 
 ## Tasks
 
-- [ ] T1 S1,S2 — FileKind classifier, TidyPlanner, FileActions.tidy with one-step undo/redo — inline
-- [ ] T2 S1,S2 — plan sheet, ⌥⌘T, Tidy Downloads…, toolbar button — inline
-- [ ] T3 S3 — date added, Group By (model, menu, list sections, card sections, grouped arrow keys) — inline
+- [x] T1 S1,S2 — FileKind classifier, TidyPlanner, FileActions.tidy with one-step undo/redo — inline — 7199f58 (RED→GREEN, 176/176)
+- [x] T2 S1,S2 — plan sheet, ⌥⌘T, Tidy Downloads…, toolbar button — inline — bb971a7 (RED→GREEN for model, 180/180; sheet not runtime-driven)
+- [x] T3 S3 — date added, Group By (model, menu, list sections, card sections, grouped arrow keys) — inline — b5181e4 (RED→GREEN, 186/186; app launches)
 
 Route evidence: T2 depends on T1; T3 shares BrowserModel and the views with T2; no Writer trigger. Forecast ~900 authored lines; stacked per-slice branch as before.
 
 ## Log
 
 - L1 (2026-11-04) User: "lets continue this the implementation" → picked "Tidy" as the next slice.
+- L2 T1: FileKind (extension lists + UTType), TidyPlan.make (loose files, reuse/blocked kind folders), FileActions.tidy on the serial queue: creates missing kind folders, keep-both naming via resolvedPlan, one undo group (folder undos registered first so undo moves files out before the empty check); New Folder undo helpers gained actionName/reuseExisting (New Folder behavior unchanged, existing tests green).
+- L3 T2: BrowserModel.tidyPreview/prepareTidy/confirmTidy/cancelTidy/tidyDownloads; TidySheet; File ▸ Tidy This Folder… ⌥⌘T (in File so it wins over View ▸ Hide Toolbar ⌥⌘T), Tidy Downloads…; toolbar Tidy button.
+- L4 T3: FileItem.dateAdded (addedToDirectoryDate, falls back to creation date), ItemGrouping (Folders + kinds; Today/Yesterday/Previous 7/30 Days/months/years/No Date), BrowserModel.groupBy persisted, items flattened in group order, grouped ↑/↓ (clamp only across groups; inside a group the old "no card below → stay" rule holds). Table Sections and LazyVGrid pinned section headers; View ▸ Group By and toolbar menu.
+- L5 Native assess (base 0f32e5a, committed-only): medium, review_due false (under_budget) after T1 and after T3. Risk: none — moves reuse the guarded move/undo primitives, undo only trashes empty folders tidy created; shared code changed (New Folder undo, arrow keys, sorting) is pinned by unchanged existing tests. Not runtime-verified: ⌥⌘T vs toolbar toggle, the sheet, Table section headers, pinned card headers.
