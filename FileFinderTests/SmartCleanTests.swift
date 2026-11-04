@@ -230,12 +230,14 @@ struct SmartCleanTests {
         try FileManager.default.createSymbolicLink(
             at: dir.url.appending(path: ".Trash"), withDestinationURL: dir.url.appending(path: "Documents"))
         let model = model([])
+        registerUndoStep()
 
         model.requestEmptyTrash()
         await model.confirmEmptyTrash()
 
         #expect(exists("Documents/precious.txt"))
         #expect(model.alertMessage == FileActionError.notTheTrash.localizedDescription)
+        #expect(undoManager.canUndo)   // nothing was deleted
         await #expect(throws: FileActionError.notTheTrash) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
     }
 
@@ -318,6 +320,52 @@ struct SmartCleanTests {
         await model.confirmEmptyTrash()
 
         #expect(!undoManager.canUndo)
+    }
+
+    private func registerUndoStep() {
+        undoManager.beginUndoGrouping()
+        undoManager.registerUndo(withTarget: actions) { _ in }
+        undoManager.endUndoGrouping()
+    }
+
+    /// A file in the test Trash that can't be deleted until `unlock` runs.
+    private func lockedTrashFile(_ name: String) throws -> URL {
+        let url = try dir.file(".Trash/\(name)", bytes: 1)
+        #expect(chflags(url.path, UInt32(UF_IMMUTABLE)) == 0)
+        return url
+    }
+
+    private func unlock(_ url: URL) { chflags(url.path, 0) }
+
+    @Test("A partly failed Empty Trash still drops the undo steps, since some items are gone for good")
+    func partlyFailedEmptyDropsUndo() async throws {
+        let locked = try lockedTrashFile("locked.txt")
+        defer { unlock(locked) }
+        try dir.file(".Trash/gone.txt", bytes: 1)
+        registerUndoStep()
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(!exists(".Trash/gone.txt") && exists(".Trash/locked.txt"))
+        #expect(model.alertMessage != nil)
+        #expect(!undoManager.canUndo)
+    }
+
+    @Test("An Empty Trash that deleted nothing keeps the undo steps")
+    func failedEmptyKeepsUndo() async throws {
+        let locked = try lockedTrashFile("locked.txt")
+        defer { unlock(locked) }
+        registerUndoStep()
+        let model = model([])
+
+        model.requestEmptyTrash()
+        await model.confirmEmptyTrash()
+
+        #expect(exists(".Trash/locked.txt"))
+        #expect(model.alertMessage != nil)
+        #expect(undoManager.canUndo)
     }
 
     @Test("An item the user unticked stays unticked when a slower suggestion lists it too")
