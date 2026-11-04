@@ -243,9 +243,15 @@ final class SmartCleanModel {
         if generation == self.generation { storage?.yourFiles = fileBytes }
     }
 
-    /// How many items a folder holds, `nil` when it can't be listed.
-    private nonisolated static func itemCount(in folder: URL) -> Int? {
-        (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.count
+    /// How many items a folder holds at every depth (links are counted, never followed), so a
+    /// folder emptied only partly counts as changed; `nil` when it can't be listed.
+    @concurrent private static func itemCount(in folder: URL) async -> Int? {
+        // Never walk what a link points to (a linked Trash is refused anyway).
+        let type = (try? FileManager.default.attributesOfItem(atPath: folder.path))?[.type] as? FileAttributeType
+        guard type == .typeDirectory, let enumerator = FileManager.default.enumerator(atPath: folder.path) else { return nil }
+        var count = 0
+        while enumerator.nextObject() != nil { count += 1 }
+        return count
     }
 
     @concurrent private static func make(_ environment: @Sendable () -> CleanEnvironment) async -> CleanEnvironment {
@@ -288,14 +294,14 @@ final class SmartCleanModel {
         emptyTrashRequested = false
         isConfirmingEmptyTrash = false
         let environment = await Self.make(self.environment)
-        let itemsBefore = Self.itemCount(in: environment.trash)
+        let itemsBefore = await Self.itemCount(in: environment.trash)
         do {
             try await actions.emptyTrash(environment.trash)
             actions.undoManager?.removeAllActions(withTarget: actions)
         } catch {
             alertMessage = error.localizedDescription
             let refused = (error as? FileActionError) == .notTheTrash
-            if !refused, let itemsBefore, (Self.itemCount(in: environment.trash) ?? 0) < itemsBefore {
+            if !refused, let itemsBefore, (await Self.itemCount(in: environment.trash) ?? 0) < itemsBefore {
                 actions.undoManager?.removeAllActions(withTarget: actions)
             }
         }
