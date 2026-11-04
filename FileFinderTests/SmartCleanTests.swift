@@ -423,6 +423,34 @@ struct SmartCleanTests {
         #expect(!model.isTicked(dmg))
     }
 
+    @Test("Looking again cancels the older scan, so it stops working in the background")
+    func lookAgainCancelsOlderScan() async throws {
+        let probe = ScanProbe()
+        let model = model([UntilCancelledScanner(kind: .duplicates, probe: probe)])
+        let first = Task { await model.lookAgain() }
+        while await probe.started < 1 { await Task.yield() }
+
+        let second = Task { await model.lookAgain() }
+        #expect(await probe.waitForCancellation())
+        await first.value
+        await probe.release()
+        await second.value
+        #expect(!model.isScanning)
+    }
+
+    @Test("Closing the window (cancelling Look Again) cancels its scan")
+    func cancellingLookAgainCancelsScan() async throws {
+        let probe = ScanProbe()
+        let model = model([UntilCancelledScanner(kind: .duplicates, probe: probe)])
+        let scan = Task { await model.lookAgain() }
+        while await probe.started < 1 { await Task.yield() }
+
+        scan.cancel()
+
+        #expect(await probe.waitForCancellation())
+        await scan.value
+    }
+
     @Test("An item gone since the scan doesn't stop the others from being cleaned")
     func vanishedItem() async throws {
         let a = try dir.file("a.bin", bytes: 1)
@@ -538,6 +566,45 @@ extension CleanEnvironment {
             home: home, applicationFolders: [home.appending(path: "Applications")], now: now,
             installedApps: installedApps, ownBundleID: "com.juancasanueva.FileFinder",
             lastOpened: lastOpened, isScreenCapture: isScreenCapture)
+    }
+}
+
+/// Counts the scans of an `UntilCancelledScanner` and whether one was cancelled.
+actor ScanProbe {
+    private(set) var started = 0
+    private(set) var cancelled = 0
+    private(set) var isReleased = false
+
+    func start() -> Int { started += 1; return started }
+    func markCancelled() { cancelled += 1 }
+    func release() { isReleased = true }
+
+    /// Whether a scan was cancelled within 5 s.
+    func waitForCancellation() async -> Bool {
+        let deadline = Date.now.addingTimeInterval(5)
+        while cancelled == 0, Date.now < deadline { try? await Task.sleep(for: .milliseconds(2)) }
+        return cancelled > 0
+    }
+}
+
+/// Its first scan works until it is cancelled (or released after 5 s at most); later scans
+/// finish once released.
+struct UntilCancelledScanner: SuggestionScanner {
+    let kind: SuggestionKind
+    let probe: ScanProbe
+
+    func scan(_ environment: CleanEnvironment) async throws -> [CleanCandidate] {
+        let run = await probe.start()
+        let deadline = Date.now.addingTimeInterval(5)
+        while Date.now < deadline {
+            if Task.isCancelled {
+                await probe.markCancelled()
+                throw CancellationError()
+            }
+            if run > 1, await probe.isReleased { return [] }
+            await Task.yield()
+        }
+        return []
     }
 }
 

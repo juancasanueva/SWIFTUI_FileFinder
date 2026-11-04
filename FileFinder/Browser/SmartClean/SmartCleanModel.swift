@@ -59,6 +59,8 @@ final class SmartCleanModel {
     @ObservationIgnored private let measuresStorage: Bool
     /// Bumped per scan, so a slow, older scan never overwrites a newer one.
     @ObservationIgnored private var generation = 0
+    /// The running scan, cancelled when a newer one starts so it stops working.
+    @ObservationIgnored private var currentScan: Task<Void, Never>?
     /// Items the user ticked or unticked in this scan: a later suggestion listing one again
     /// leaves the user's choice alone. Any other item starts ticked when a suggestion that
     /// lists it ticks by default, whichever finishes first.
@@ -163,8 +165,20 @@ final class SmartCleanModel {
 
     // MARK: Scanning
 
-    /// Measures storage and runs every scanner again; ticks go back to their defaults.
+    /// Measures storage and runs every scanner again; ticks go back to their defaults. Cancels
+    /// the scan still running; cancelling the caller (closing the window) cancels this one.
     func lookAgain() async {
+        currentScan?.cancel()
+        let scan = Task { await self.scan() }
+        currentScan = scan
+        await withTaskCancellationHandler {
+            await scan.value
+        } onCancel: {
+            scan.cancel()
+        }
+    }
+
+    private func scan() async {
         generation += 1
         let generation = generation
         let environment = await Self.make(self.environment)
