@@ -243,17 +243,6 @@ final class SmartCleanModel {
         if generation == self.generation { storage?.yourFiles = fileBytes }
     }
 
-    /// How many items a folder holds at every depth (links are counted, never followed), so a
-    /// folder emptied only partly counts as changed; `nil` when it can't be listed.
-    @concurrent private static func itemCount(in folder: URL) async -> Int? {
-        // Never walk what a link points to (a linked Trash is refused anyway).
-        let type = (try? FileManager.default.attributesOfItem(atPath: folder.path))?[.type] as? FileAttributeType
-        guard type == .typeDirectory, let enumerator = FileManager.default.enumerator(atPath: folder.path) else { return nil }
-        var count = 0
-        while enumerator.nextObject() != nil { count += 1 }
-        return count
-    }
-
     @concurrent private static func make(_ environment: @Sendable () -> CleanEnvironment) async -> CleanEnvironment {
         environment()
     }
@@ -286,24 +275,18 @@ final class SmartCleanModel {
         isConfirmingEmptyTrash = false
     }
 
-    /// Deletes the Trash's contents for good; only after `requestEmptyTrash`. The undo steps
-    /// that moved items there can't work anymore, so they are dropped (only those), also when emptying
-    /// failed partway; they stay only when nothing was deleted.
+    /// Deletes the Trash's contents for good; only after `requestEmptyTrash`. FileActions drops
+    /// the undo steps that moved items there (only those) once anything was deleted, also when
+    /// emptying failed partway.
     func confirmEmptyTrash() async {
         guard emptyTrashRequested else { return }
         emptyTrashRequested = false
         isConfirmingEmptyTrash = false
         let environment = await Self.make(self.environment)
-        let itemsBefore = await Self.itemCount(in: environment.trash)
         do {
             try await actions.emptyTrash(environment.trash)
-            actions.dropTrashUndo()
         } catch {
             alertMessage = error.localizedDescription
-            let refused = (error as? FileActionError) == .notTheTrash
-            if !refused, let itemsBefore, (await Self.itemCount(in: environment.trash) ?? 0) < itemsBefore {
-                actions.dropTrashUndo()
-            }
         }
         if measuresStorage {
             let trash = await StorageOverview.measureTrash(environment)

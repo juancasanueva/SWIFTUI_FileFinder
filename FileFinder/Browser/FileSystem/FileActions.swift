@@ -345,12 +345,17 @@ final class FileActions {
 
     /// Permanently deletes everything in `trash`. Not undoable, so callers must ask first.
     /// Refuses anything that isn't a real folder named ".Trash": a link named ".Trash" would
-    /// otherwise empty the folder it points to.
+    /// otherwise empty the folder it points to. Once anything was deleted, even when emptying
+    /// then failed, the undo steps that would restore items from the Trash are dropped.
     func emptyTrash(_ trash: URL) async throws {
         guard trash.lastPathComponent == ".Trash" else { throw FileActionError.notTheTrash }
         // Checked inside the queued work, right before deleting: the Trash may change while
         // earlier operations run.
-        try await serialized { try await Self.performEmptyTrash(trash) }
+        try await serialized {
+            let result = await Self.performEmptyTrash(trash)
+            if result.deletedSomething { self.dropTrashUndo() }
+            if let error = result.error { throw error }
+        }
     }
 
     /// The folder's device and inode, or `nil` when `url` isn't a real folder. `lstat` never
@@ -361,22 +366,37 @@ final class FileActions {
         return (info.st_dev, info.st_ino)
     }
 
-    @concurrent private nonisolated static func performEmptyTrash(_ trash: URL) async throws {
-        guard let identity = realFolderIdentity(trash) else { throw FileActionError.notTheTrash }
+    /// Whether anything was deleted, without walking the Trash: a top-level item removed, or
+    /// a folder whose removal failed (it deletes its contents one by one and stops at the
+    /// first it can't, so part of it may be gone).
+    @concurrent private nonisolated static func performEmptyTrash(
+        _ trash: URL
+    ) async -> (deletedSomething: Bool, error: (any Error)?) {
+        guard let identity = realFolderIdentity(trash) else { return (false, FileActionError.notTheTrash) }
         let fileManager = FileManager.default
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: trash.path)
+        } catch {
+            return (false, error)
+        }
+        var deletedSomething = false
         var firstError: (any Error)?
-        for name in try fileManager.contentsOfDirectory(atPath: trash.path) {
+        for name in names {
             // Still the same real folder before every deletion, never a link swapped in.
             guard let current = realFolderIdentity(trash), current == identity else {
-                throw FileActionError.notTheTrash
+                return (deletedSomething, FileActionError.notTheTrash)
             }
+            let item = trash.appending(path: name)
             do {
-                try fileManager.removeItem(at: trash.appending(path: name))
+                try fileManager.removeItem(at: item)
+                deletedSomething = true
             } catch {
+                if realFolderIdentity(item) != nil { deletedSomething = true }
                 firstError = firstError ?? error
             }
         }
-        if let firstError { throw firstError }
+        return (deletedSomething, firstError)
     }
 
     // MARK: - Clipboard

@@ -42,6 +42,7 @@ Quoted from the reference site (fileosmac.com):
 - [x] T13 S3 — the installer format check never reads an iCloud-only file — inline — (this commit) (RED→GREEN, 312 ×2)
 - [x] T14 S6 — a partly emptied folder in the Trash counts as deleted: Undo is dropped — inline — (this commit) (RED→GREEN, 313 ×3)
 - [x] T15 S6 — emptying the Trash drops only the undo steps that restore items from it — inline — (this commit) (RED→GREEN, 315); Risk item 3 (shared undo registration) → verifier
+- [x] T16 S6 — Empty Trash never walks the Trash's tree to decide about Undo — inline — (this commit) (no RED: a slowdown; existing tests pin the behavior, 318 ×2); Risk item 1 → verifier
 - [x] T6 S1,S2,S6 — Smart Clean window: storage bar, sections, rows with why and items, Clean, Undo, Look Again, Empty Trash dialog, sidebar + menu entry — inline — 85062e1 (builds; not runtime-driven)
 
 Route evidence: T2–T5 are four independent units with disjoint files (one scanner file + one test file each), each 150+ lines with tests, launched together after T1 → Writer trigger (a) parallelism; the parent owns git and the scanner registry. T1 and T6 inline. Risk: T1 item 1 (Empty Trash deletes permanently; bulk trashing of user files) → independent verifier + native review; T5 leftovers item 1 (heuristic targets in ~/Library).
@@ -90,3 +91,4 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R3-001 Any folder named `.Trash` counts as the Trash (also in L25).
   - R3-003 partlyEmptiedFolderDropsUndo relies on APFS listing order and removeItem stopping at the first failure.
   - R3-004 Tests send tiny files to the real ~/.Trash (FileActions.trash ignores the test home).
+- L27 (2026-11-04) User: "yes, fix the Empty Trash delay". T16 inline (L26 R4-001): the model's recursive itemCount is gone. FileActions.emptyTrash decides in the deletion loop: something was deleted when a top-level item was removed, or a folder's removal failed (removeItem stops partway, so part of it may be gone; conservative: a folder failing on its first file also drops Undo), and then calls dropTrashUndo itself, also on partial failure or a mid-way refusal. An empty Trash, a refused Trash and a lone undeletable file keep Undo. No RED (no deterministic timing test); partlyEmptiedFolderDropsUndo no longer depends on APFS listing order (L26 R3-003); emptyDropsUndo puts an item in the test Trash. 318/318 twice.

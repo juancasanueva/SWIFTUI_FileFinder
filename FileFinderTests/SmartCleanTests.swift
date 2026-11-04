@@ -311,6 +311,7 @@ struct SmartCleanTests {
     @Test("Emptying the Trash drops the undo steps that pointed into it")
     func emptyDropsUndo() async throws {
         let file = try dir.file("cache.bin", bytes: 1)
+        try dir.file(".Trash/old.txt")
         let model = model([FixedScanner(kind: .developerCaches) { _ in [CleanCandidate(url: file, bytes: 1, detail: "")] }])
         await model.lookAgain()
         await model.clean()
@@ -438,19 +439,18 @@ struct SmartCleanTests {
 
     @Test("A partly emptied folder in the Trash counts as deleted: the undo steps are dropped")
     func partlyEmptiedFolderDropsUndo() async throws {
-        // Removing a folder stops at its first undeletable file; with these names (APFS lists
-        // them in a fixed order) some of the others go first.
+        // Removing a folder deletes its contents one by one and stops at the first it can't, so
+        // a folder whose removal failed may be partly gone: that counts as deleted.
         let locked = try lockedTrashFile("Box/m.txt")
         defer { unlock(locked) }
-        let others = ["a", "b", "y", "z"].map { ".Trash/Box/\($0).txt" }
-        try others.forEach { try dir.file($0, bytes: 1) }
+        try ["a", "b", "y", "z"].forEach { try dir.file(".Trash/Box/\($0).txt", bytes: 1) }
         try await registerTrashUndoStep()
         let model = model([])
 
         model.requestEmptyTrash()
         await model.confirmEmptyTrash()
 
-        try #require(exists(".Trash/Box/m.txt") && others.contains { !exists($0) })
+        #expect(exists(".Trash/Box/m.txt"))
         #expect(model.alertMessage != nil)
         #expect(!undoManager.canUndo)
     }
