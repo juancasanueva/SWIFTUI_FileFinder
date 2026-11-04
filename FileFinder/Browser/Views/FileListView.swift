@@ -97,9 +97,14 @@ struct FileContextMenu: View {
             if !model.isShowingWorkspace {
                 Button("New Folder") { Task { await model.newFolder() } }
                 Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
+                Divider()
+                DeveloperOpenButtons(model: model, folder: model.currentFolder)
             }
         } else {
             Button("Open") { model.open(urls) }
+            if urls.count == 1, let folder = model.items.first(where: { urls.contains($0.url) && $0.isNavigable }) {
+                DeveloperOpenButtons(model: model, folder: folder.url)
+            }
             Button("Quick Look") {
                 model.selection = urls
                 model.toggleQuickLook()
@@ -138,6 +143,17 @@ struct FileContextMenu: View {
                 }
             }
         }
+    }
+}
+
+/// "Open in Terminal" and "Open in <editor>" for one folder.
+struct DeveloperOpenButtons: View {
+    let model: BrowserModel
+    let folder: URL
+
+    var body: some View {
+        Button(model.developerTools.openTitle(.terminal)) { model.openInTerminal(folder) }
+        Button(model.developerTools.openTitle(.editor)) { model.openInEditor(folder) }
     }
 }
 

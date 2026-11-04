@@ -28,6 +28,13 @@ struct BrowserCommands: Commands {
             Button("Tidy Downloads…") { Task { await browser?.tidyDownloads() } }
                 .disabled(browser == nil || isTyping)
             Divider()
+            Button(DeveloperTools.shared.openTitle(.terminal)) { browser?.openInTerminal() }
+                .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                .disabled(browser?.developerFolder == nil || isTyping)
+            Button(DeveloperTools.shared.openTitle(.editor)) { browser?.openInEditor() }
+                .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+                .disabled(browser?.developerFolder == nil || isTyping)
+            Divider()
             Button("Copy to Other Pane") { Task { await window?.copyToOtherPane() } }
                 .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
                 .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)

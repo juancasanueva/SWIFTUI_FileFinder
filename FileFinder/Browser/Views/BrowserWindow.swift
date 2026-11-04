@@ -83,6 +83,14 @@ private struct BrowserWindowContent: View {
             }
             .help("Split into two panes (⌘D)")
         }
+        ToolbarItemGroup {
+            Button("Terminal", systemImage: "terminal") { active.openInTerminal() }
+                .disabled(active.developerFolder == nil)
+                .help("\(active.developerTools.openTitle(.terminal)) (⌥⇧⌘T)")
+            Button("Editor", systemImage: "chevron.left.forwardslash.chevron.right") { active.openInEditor() }
+                .disabled(active.developerFolder == nil)
+                .help("\(active.developerTools.openTitle(.editor)) (⌥⇧⌘E)")
+        }
         ToolbarItem {
             Button("Tidy", systemImage: "sparkles") { Task { await active.prepareTidy() } }
                 .disabled(!active.canTidy)

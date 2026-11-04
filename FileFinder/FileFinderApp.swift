@@ -9,5 +9,9 @@ struct FileFinderApp: App {
         .commands {
             BrowserCommands()
         }
+
+        Settings {
+            SettingsView(tools: .shared)
+        }
     }
 }

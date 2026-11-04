@@ -143,6 +143,7 @@ final class BrowserModel {
 
     let actions: FileActions
     let workspaces: WorkspaceStore
+    let developerTools: DeveloperTools
     /// Measures one folder; injectable so tests can control timing.
     @ObservationIgnored private let measurer: @Sendable (URL) async -> FolderStats?
 
@@ -152,6 +153,7 @@ final class BrowserModel {
         defaults: UserDefaults = .standard,
         workspaces: WorkspaceStore = .shared,
         showing workspace: Workspace.ID? = nil,
+        developerTools: DeveloperTools = .shared,
         deepRefreshInterval: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
@@ -160,6 +162,7 @@ final class BrowserModel {
         self.actions = actions
         self.defaults = defaults
         self.workspaces = workspaces
+        self.developerTools = developerTools
         // A restored workspace that no longer exists just leaves the pane on its folder.
         workspaceID = workspace.flatMap { workspaces.workspace($0) != nil ? $0 : nil }
         self.measurer = measurer
@@ -709,6 +712,27 @@ final class BrowserModel {
             guard folder == currentFolder else { return }
             selection = [created]
             renamingURL = created
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: Terminal and editor
+
+    /// The folder ⌥⇧⌘T / ⌥⇧⌘E open: the one shown, or in a workspace the single selected folder.
+    var developerFolder: URL? {
+        guard isShowingWorkspace else { return currentFolder }
+        let selected = selectedItems
+        return selected.count == 1 && selected[0].isNavigable ? selected[0].url : nil
+    }
+
+    func openInTerminal(_ folder: URL? = nil) { openDeveloperApp(.terminal, folder) }
+    func openInEditor(_ folder: URL? = nil) { openDeveloperApp(.editor, folder) }
+
+    private func openDeveloperApp(_ role: DeveloperApp.Role, _ folder: URL?) {
+        guard let folder = folder ?? developerFolder else { return }
+        do {
+            try developerTools.openInPreferred(folder, role: role)
         } catch {
             alertMessage = error.localizedDescription
         }
