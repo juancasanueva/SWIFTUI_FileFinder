@@ -66,10 +66,10 @@ final class TransferProgress {
     }
 }
 
-/// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
-/// Identity for the undo steps that restore items from the Trash.
+/// Identity for the undo steps that bring items back out of the Trash.
 private final class TrashUndoTarget {}
 
+/// One item going from `from` to `to` (a move, a copy, or a trip to the Trash).
 nonisolated struct FileTransfer: Equatable, Sendable {
     let from: URL
     let to: URL
@@ -416,8 +416,19 @@ final class FileActions {
 
     /// `done` already happened; undoing it moves those items back.
     private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer]) {
-        let intoTrash = done.contains { $0.to.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" } }
-        registerRelocationUndo(actionName, RelocationRecord(transfers: done), restoresFromTrash: intoTrash ? true : nil)
+        // Undoing a trip into the Trash brings items out of it; undoing a move out of it puts
+        // them back, and then its redo is the step that brings them out.
+        let restoresFromTrash: Bool? =
+            if done.contains(where: { Self.isInTrash($0.to) }) { true }
+            else if done.contains(where: { Self.isInTrash($0.from) }) { false }
+            else { nil }
+        registerRelocationUndo(actionName, RelocationRecord(transfers: done), restoresFromTrash: restoresFromTrash)
+    }
+
+    /// Whether `url` is inside the Trash that Empty Trash empties (`~/.Trash`, or a test
+    /// home's); other volumes' `.Trashes` aren't emptied, so their steps keep working.
+    private nonisolated static func isInTrash(_ url: URL) -> Bool {
+        url.pathComponents.contains(".Trash")
     }
 
     /// Undo and redo hand each other a record of what their disk work really moved, so a step
@@ -453,7 +464,9 @@ final class FileActions {
 
     /// Redoing a copy copies the same sources to the same names, skipping names now taken.
     private func registerRecopyUndo(_ record: CopyRecord) {
-        registerUndo("Copy") { actions in
+        // Redoing copies the sources again: impossible once they are emptied from the Trash.
+        let fromTrash = record.transfers.contains { Self.isInTrash($0.from) }
+        registerUndo("Copy", target: fromTrash ? trashUndoTarget : self) { actions in
             actions.registerCopyUndo(record)
             let copier = actions.copier
             actions.enqueue {

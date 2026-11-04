@@ -350,6 +350,47 @@ struct SmartCleanTests {
         #expect(undoManager.canRedo && exists("second.bin"))
     }
 
+    @Test("An item moved out of the Trash, then undone, loses its Redo once the Trash is emptied")
+    func moveOutOfTrashRedoDropped() async throws {
+        let old = try dir.file(".Trash/old.txt", bytes: 1)
+        let desktop = try dir.folder("Desktop")
+        _ = try await actions.move([old], into: desktop)
+        undoManager.undo()                      // old.txt is back in the Trash, Redo "Move" waits
+        await actions.waitForPendingWork()
+        #expect(undoManager.canRedo)
+
+        try FileManager.default.removeItem(at: old)
+        actions.dropTrashUndo()
+
+        #expect(!undoManager.canRedo && !undoManager.canUndo)
+    }
+
+    @Test("An item copied out of the Trash, then undone, loses its Redo once the Trash is emptied")
+    func copyOutOfTrashRedoDropped() async throws {
+        let old = try dir.file(".Trash/old.txt", bytes: 1)
+        let desktop = try dir.folder("Desktop")
+        _ = try await actions.copy([old], into: desktop)
+        undoManager.undo()                      // the copy goes, Redo "Copy" waits
+        await actions.waitForPendingWork()
+        #expect(undoManager.canRedo)
+
+        try FileManager.default.removeItem(at: old)
+        actions.dropTrashUndo()
+
+        #expect(!undoManager.canRedo)
+    }
+
+    @Test("Moves into another volume's Trash (.Trashes) keep their Undo: Empty Trash doesn't empty it")
+    func otherVolumeTrashKeepsUndo() async throws {
+        let file = try dir.file("a.txt", bytes: 1)
+        let otherTrash = try dir.folder(".Trashes/501")
+        _ = try await actions.move([file], into: otherTrash)
+
+        actions.dropTrashUndo()
+
+        #expect(undoManager.undoActionName == "Move")
+    }
+
     @Test("Emptying the Trash drops only the undo steps into the Trash; a rename keeps its Undo")
     func emptyKeepsUnrelatedUndo() async throws {
         let file = try dir.file("cache.bin", bytes: 1)
