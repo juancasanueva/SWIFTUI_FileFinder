@@ -685,14 +685,14 @@ struct SmartCleanTests {
         #expect(!undoManager.canUndo)
     }
 
-    @Test("A folder whose ancestor is moved out of the Trash mid-empty stops being emptied within 64 items")
+    @Test("A folder whose ancestor is moved out of the Trash mid-empty stops being emptied at the next ancestor check")
     func ancestorMovedOut() async throws {
         for index in 0..<200 { try dir.file(".Trash/Top/Mid/Deep/f\(index)", bytes: 1) }
         let mid = dir.url.appending(path: ".Trash/Top/Mid")
         let rescued = try dir.folder("Desktop").appending(path: "Mid")
         let deepInode = inode(of: mid.appending(path: "Deep"))
         let checks = Counter()
-        // Mid (neither the top-level folder nor Deep's parent check would notice) goes after 3 of Deep's files.
+        // Mid (neither the top-level folder nor Deep's parent check would notice) goes after 3 of Deep's files; the ancestor check at step 64 stops it 59 files later.
         let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
             if isFolder(folder, deepInode), checks.next() == 5 { try? FileManager.default.moveItem(at: mid, to: rescued) }
             return FileActions.TrashWalk.system.parentOf(folder)
@@ -700,7 +700,7 @@ struct SmartCleanTests {
 
         await #expect(throws: FileActionError.movedWhileEmptying("Mid")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
 
-        #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "Deep").path).count >= 200 - 64)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "Deep").path).count == 138)
     }
 
     @Test("A top-level folder moved out of the Trash while a folder deep inside it is emptied stops at the next item, naming it")
@@ -718,6 +718,106 @@ struct SmartCleanTests {
         await #expect(throws: FileActionError.movedWhileEmptying("Top")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: rescued.appending(path: "A/Deep").path).count == 197)
+    }
+
+    @Test("An ancestor that can't be read while checking for moves is reported as that failure")
+    func ancestorUnreadableReported() async throws {
+        for index in 0..<100 { try dir.file(".Trash/Top/Mid/Deep/f\(index)", bytes: 1) }
+        try dir.file(".Trash/other.txt", bytes: 1)
+        let midInode = inode(of: dir.url.appending(path: ".Trash/Top/Mid"))
+        let checks = Counter()
+        // Mid's own checks pass (entering it, then before entering Deep); the ancestor check from Deep (at step 64) fails.
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, midInode), checks.next() >= 3 { return .failure(FileActions.SystemCallError(code: EIO)) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Mid” couldn’t be removed."
+        }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash/Top/Mid/Deep").path).count == 38)
+        #expect(!exists(".Trash/other.txt"))
+    }
+
+    @Test("An ancestor moved out of the Trash is noticed however deep the folder being emptied is")
+    func deepAncestorMovedOut() async throws {
+        // 400 levels below Top/d: "../" that many times is longer than a path may be.
+        let top = try dir.folder(".Trash/Top")
+        var folder = open(top.path, O_RDONLY | O_DIRECTORY)
+        for _ in 0..<400 {
+            #expect(mkdirat(folder, "d", 0o755) == 0)
+            let child = openat(folder, "d", O_RDONLY | O_DIRECTORY)
+            close(folder)
+            folder = child
+        }
+        for index in 0..<200 {
+            let file = openat(folder, "f\(index)", O_WRONLY | O_CREAT, 0o644)
+            close(file)
+        }
+        var info = stat()
+        fstat(folder, &info)
+        close(folder)
+        let leafInode = info.st_ino
+        let rescued = try dir.folder("Desktop").appending(path: "d")
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, leafInode), checks.next() == 5 { try? FileManager.default.moveItem(at: top.appending(path: "d"), to: rescued) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        await #expect(throws: FileActionError.movedWhileEmptying("d")) { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) }
+
+        // Climb to the leaf by descriptors and count what's left in it.
+        folder = open(rescued.path, O_RDONLY | O_DIRECTORY)
+        for _ in 0..<399 {
+            let child = openat(folder, "d", O_RDONLY | O_DIRECTORY)
+            close(folder)
+            folder = child
+        }
+        #expect(folder >= 0)
+        let left = (try? FileActions.entryNames(of: folder).get().count) ?? -1
+        close(folder)
+        // Moved after 3 of its files; the next ancestor check (every 64 steps) comes 45 files later.
+        #expect(left == 152)
+    }
+
+    @Test("A top-level folder renamed inside the Trash mid-empty is still emptied, never reported as moved")
+    func topRenamedInTrash() async throws {
+        for index in 0..<20 { try dir.file(".Trash/Top/A/Deep/f\(index)", bytes: 1) }
+        try dir.file(".Trash/other.txt", bytes: 1)
+        let top = dir.url.appending(path: ".Trash/Top")
+        let deepInode = inode(of: top.appending(path: "A/Deep"))
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, deepInode), checks.next() == 5 { try? FileManager.default.moveItem(at: top, to: dir.url.appending(path: ".Trash/Renamed")) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        try await actions.emptyTrash(dir.url.appending(path: ".Trash"))
+
+        // Its contents went; the folder itself, known only by its old name, stays (empty).
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path) == ["Renamed"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash/Renamed").path).isEmpty)
+    }
+
+    @Test("A top-level folder deleted elsewhere mid-empty is reported as a failure, never as moved")
+    func topDeletedElsewhere() async throws {
+        for index in 0..<20 { try dir.file(".Trash/Top/A/Deep/f\(index)", bytes: 1) }
+        try dir.file(".Trash/other.txt", bytes: 1)
+        let top = dir.url.appending(path: ".Trash/Top")
+        let deepInode = inode(of: top.appending(path: "A/Deep"))
+        let checks = Counter()
+        let actions = actions(walk: FileActions.TrashWalk(listEntries: FileActions.TrashWalk.system.listEntries) { folder in
+            if isFolder(folder, deepInode), checks.next() == 5 { try? FileManager.default.removeItem(at: top) }
+            return FileActions.TrashWalk.system.parentOf(folder)
+        })
+
+        // The open folder's parent can't be told apart from a failure (L42): reported, as "couldn't be removed".
+        await #expect { try await actions.emptyTrash(dir.url.appending(path: ".Trash")) } throws: { error in
+            error.localizedDescription == "“Deep” couldn’t be removed."
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.url.appending(path: ".Trash").path).isEmpty)
     }
 
     @Test("A folder whose listing fails is kept with that failure")

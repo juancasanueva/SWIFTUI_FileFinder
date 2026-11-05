@@ -475,8 +475,8 @@ final class FileActions {
     /// never followed. Walks with an explicit stack and keeps only the folder it works in open,
     /// going down by name and back up through "..", each checked to be the expected folder.
     /// Before every deletion the folder must still be in its parent: one moved meanwhile (out of
-    /// the Trash, say) stops being emptied; a folder whose ancestor was moved, once the walk
-    /// climbs back to that ancestor.
+    /// the Trash, say) stops being emptied; a folder whose ancestor was moved, within 64 steps.
+    /// A top-level folder renamed inside the Trash is still in it, so it keeps being emptied.
     private nonisolated static func remove(
         _ name: [CChar], inTrash trash: Int32, identity trashIdentity: FolderIdentity, path: String,
         walk: TrashWalk, _ deletion: inout Deletion
@@ -488,6 +488,7 @@ final class FileActions {
         }
         var chain: [Folder] = []        // from the top-level folder down to the one worked in
         var current: Int32 = -1         // the descriptor of chain.last
+        var steps = 0                   // walk steps below the top-level folder, to space the ancestor checks
         defer { if current >= 0 { close(current) } }
 
         func parentIdentity(of index: Int) -> FolderIdentity { index == 0 ? trashIdentity : chain[index - 1].identity }
@@ -496,18 +497,39 @@ final class FileActions {
             ([path] + chain.prefix(depth).dropFirst().map { displayName($0.name) } + [name.map(displayName)].compactMap { $0 })
                 .joined(separator: "/")
         }
-        // The index of the folder above chain[index]'s parent that is no longer in its recorded
-        // parent, if any; read through "../.." and so on (never a link). An ancestor that can't
-        // be read is left to the checks made when climbing back.
-        func movedAncestor(of index: Int) -> Int? {
-            var relative = ".."
-            for level in stride(from: index - 2, through: -1, by: -1) {
-                relative += "/.."
-                guard relative.utf8.count < Int(PATH_MAX), let found = FolderIdentity(of: current, child: relative) else { return nil }
-                // chain[level + 1]'s parent isn't chain[level] (or the Trash): it was moved.
-                if found != (level < 0 ? trashIdentity : chain[level].identity) { return level + 1 }
+        // Whether every folder above chain[index] is still in its recorded parent, up to the
+        // Trash (chain[index]'s own parent is checked by the caller). Climbs one folder at a time
+        // through ".." (never a link), so any depth is checked with two descriptors open.
+        enum Ancestors { case inPlace, moved(Int), failed(Int32, Int) }
+        func checkAncestors(of index: Int) -> Ancestors {
+            var folder = current, owned = false
+            defer { if owned { close(folder) } }
+            for level in stride(from: index - 1, through: 0, by: -1) {
+                let up = openat(folder, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+                // It is open, so "gone" can't be taken as already deleted: report it.
+                guard up >= 0 else { return .failed(errno == ENOENT ? EIO : errno, level + 1) }
+                if owned { close(folder) }
+                (folder, owned) = (up, true)
+                // chain[level + 1]'s parent isn't chain[level]: it was moved.
+                guard FolderIdentity(of: folder) == chain[level].identity else { return .moved(level + 1) }
+                switch walk.parentOf(folder) {
+                case .failure(let failure): return .failed(failure.code == ENOENT ? EIO : failure.code, level)
+                case .success(let found) where found != parentIdentity(of: level): return .moved(level)
+                case .success: continue
+                }
             }
-            return nil
+            return .inPlace
+        }
+        // Stops emptying this entry when an ancestor moved or can't be read; whether it stopped.
+        func stopUnlessInPlace(_ ancestors: Ancestors) -> Bool {
+            switch ancestors {
+            case .inPlace: return false
+            case .moved(let index): stopMoved(index)
+            case .failed(let code, let index):
+                deletion.fail(code, path: pathOf(nil, depth: index + 1))
+                chain.removeAll()
+            }
+            return true
         }
         // Stops emptying this entry: chain[index] (the folder worked in by default) was moved.
         func stopMoved(_ index: Int? = nil) {
@@ -573,25 +595,30 @@ final class FileActions {
                 break
             }
             // An ancestor moved out takes this folder along without changing its parent: check
-            // the top-level folder before every deletion, and every ancestor on entering a
-            // folder and every 64 entries.
+            // the top-level folder before every deletion, and every ancestor every 64 steps
+            // (an item deleted or a folder entered), so the climbs cost the depth once per 64.
             if last > 0 {
                 var top = stat()
-                if fstatat(trash, chain[0].name, &top, AT_SYMLINK_NOFOLLOW) != 0, errno != ENOENT {
-                    // Can't be read: report that, not a move.
-                    deletion.fail(errno, path: path)
-                    chain.removeAll()
-                    continue
-                }
-                if FolderIdentity(of: trash, child: chain[0].name) != chain[0].identity {
+                if fstatat(trash, chain[0].name, &top, AT_SYMLINK_NOFOLLOW) != 0 {
+                    let code = errno
+                    if code != ENOENT {
+                        // Can't be read: report that, not a move.
+                        deletion.fail(code, path: path)
+                        chain.removeAll()
+                        continue
+                    }
+                    // Its name is gone: renamed in the Trash (or being deleted) is fine; climb
+                    // to see whether it is still in the Trash.
+                    if stopUnlessInPlace(checkAncestors(of: last)) { continue }
+                } else if FolderIdentity(of: trash, child: chain[0].name) != chain[0].identity {
+                    // Another item took its name: it was moved away.
                     stopMoved(0)
                     continue
-                }
-                if chain[last].next % 64 == 0, let moved = movedAncestor(of: last) {
-                    stopMoved(moved)
+                } else if steps % 64 == 0, stopUnlessInPlace(checkAncestors(of: last)) {
                     continue
                 }
             }
+            steps += 1
             if chain[last].next < chain[last].entries.count {
                 let child = chain[last].entries[chain[last].next]
                 chain[last].next += 1
