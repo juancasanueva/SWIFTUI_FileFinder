@@ -29,7 +29,9 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | --- | --- |
 | ⌘L | Type a path |
 | Space | Quick Look |
-| Return | Rename |
+| Return | Open the selected folder, or rename the selected file |
+| Backspace | Go up to the enclosing folder |
+| F2 | Rename |
 | ⇧⌘N | New Folder |
 | ⇧⌘. | Show or hide hidden files |
 | ⌘+ / ⌘− | Bigger or smaller icons |

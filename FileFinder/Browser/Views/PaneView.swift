@@ -86,7 +86,7 @@ struct PaneView: View {
         return .handled
     }
 
-    /// Return enters a selected folder; on a single file it starts renaming, like Finder.
+    /// Return enters a selected folder; on a single file it starts renaming. F2 renames either.
     private func handleReturn() -> KeyPress.Result {
         guard !model.isTyping, model.selection.count == 1 else { return .ignored }
         if !model.enterSelectedFolder() { model.beginRename() }

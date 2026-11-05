@@ -23,6 +23,9 @@ struct BrowserCommands: Commands {
             Button("Open") { browser?.openSelection() }
                 .keyboardShortcut(shortcut(.open))
                 .disabled(!hasSelection || isTyping)
+            Button("Rename") { browser?.beginRename() }
+                .keyboardShortcut(shortcut(.rename))
+                .disabled(browser?.selection.count != 1 || isTyping)
             Divider()
             // Listed before the View menu, so it wins ⌥⌘T over Show/Hide Toolbar.
             Button("Tidy This Folder…") { Task { await browser?.prepareTidy() } }

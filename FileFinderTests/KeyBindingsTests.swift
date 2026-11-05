@@ -64,6 +64,8 @@ struct ShortcutTextTests {
         #expect(KeyAction.splitView.defaultShortcut?.text == "cmd+d")
         #expect(KeyAction.goBack.defaultShortcut?.text == "cmd+[")
         #expect(KeyAction.copyToOtherPane.defaultShortcut?.text == "f5")
+        #expect(KeyAction.rename.defaultShortcut?.text == "f2")
+        #expect(KeyAction.rename.menu == .file)
         #expect(KeyAction.smartClean.defaultShortcut == nil)
         #expect(KeyAction.focusLeftPane.defaultShortcut?.text == "cmd+alt+left")
         #expect(KeyAction.focusRightPane.defaultShortcut?.text == "cmd+alt+right")
