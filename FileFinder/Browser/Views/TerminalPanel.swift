@@ -54,6 +54,23 @@ struct TerminalPanel: View {
             terminal.onClose = { [id = session.id] _ in panel.shellExited(id) }
             terminal.requestFocus()
         }
+        .onChange(of: panel.cdRequest) { _, request in
+            guard let request else { return }
+            if let command = Self.cdCommand(to: request.folder, from: terminal.workingDirectory) {
+                // Pasted, then Enter as a key: a `\r` inside a paste would not run the line.
+                _ = terminal.paste(text: command)
+                _ = terminal.sendKey(.enter)
+            }
+            terminal.requestFocus()
+        }
+    }
+
+    /// What to type so the shell moves to `folder`: `nil` when it is already there (its folder as
+    /// last reported by the shell). The path is single-quoted, so spaces and quotes are safe.
+    nonisolated static func cdCommand(to folder: URL, from current: String?) -> String? {
+        if let current, URL(filePath: current).canonical == folder.canonical { return nil }
+        let quoted = folder.canonical.path.replacingOccurrences(of: "'", with: "'\\''")
+        return "cd '\(quoted)'"
     }
 
     private var header: some View {
