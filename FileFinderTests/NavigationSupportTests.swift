@@ -77,12 +77,13 @@ struct StatusTextTests {
 
 @Suite("Sidebar locations")
 struct SidebarLocationsTests {
-    @Test("Favorites are Desktop, Documents and Downloads in the user's home")
+    @Test("Favorites are Applications first, as in Finder, then Desktop, Documents and Downloads in the user's home")
     func favorites() throws {
         let home = try TemporaryDirectory()
         let items = SidebarLocations.favorites(home: home.url)
-        #expect(items.map(\.title) == ["Desktop", "Documents", "Downloads"])
-        #expect(items.map(\.url.lastPathComponent) == ["Desktop", "Documents", "Downloads"])
+        #expect(items.map(\.title) == ["Applications", "Desktop", "Documents", "Downloads"])
+        #expect(items.first?.url.path == "/Applications")
+        #expect(items.dropFirst().map(\.url) == ["Desktop", "Documents", "Downloads"].map { home.url.appending(path: $0).canonical })
     }
 
     @Test("Locations include iCloud Drive and cloud providers only when present, plus home and the boot disk")

@@ -15,8 +15,10 @@ nonisolated struct SidebarItem: Identifiable, Hashable, Sendable {
 
 /// Builds the sidebar sections: Favorites, Locations and Trash.
 nonisolated enum SidebarLocations {
+    /// Applications first, as in Finder, then the user's Desktop, Documents and Downloads.
     static func favorites(home: URL) -> [SidebarItem] {
         [
+            SidebarItem(title: "Applications", systemImage: "app.dashed", url: URL(filePath: "/Applications", directoryHint: .isDirectory)),
             SidebarItem(title: "Desktop", systemImage: "menubar.dock.rectangle", url: home.appending(path: "Desktop")),
             SidebarItem(title: "Documents", systemImage: "doc", url: home.appending(path: "Documents")),
             SidebarItem(title: "Downloads", systemImage: "arrow.down.circle", url: home.appending(path: "Downloads")),
