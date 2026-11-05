@@ -27,32 +27,34 @@ struct PathBar: View {
         .frame(height: 30)
     }
 
+    /// Starts at the left edge and uses the whole bar; when the path is too long, the earlier
+    /// folders shorten their names first so the current folder stays whole. Any empty space
+    /// after the crumbs switches to typing a path.
     private var breadcrumbs: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 2) {
-                    let crumbs = PathInput.breadcrumbs(for: model.currentFolder)
-                    ForEach(crumbs, id: \.self) { crumb in
-                        Button { model.navigate(to: crumb) } label: {
-                            Label(FileManager.default.displayName(atPath: crumb.path), systemImage: "folder")
-                                .labelStyle(.titleAndIcon)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(crumb == crumbs.last ? .primary : .secondary)
-                        if crumb != crumbs.last {
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
+            let crumbs = PathInput.breadcrumbs(for: model.currentFolder)
+            ForEach(crumbs, id: \.self) { crumb in
+                let isLast = crumb == crumbs.last
+                Button { model.navigate(to: crumb) } label: {
+                    Label(FileManager.default.displayName(atPath: crumb.path), systemImage: "folder")
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(isLast ? .primary : .secondary)
+                .help(crumb.path)
+                .layoutPriority(isLast ? 1 : 0)
+                if !isLast {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
                 }
             }
-            .scrollIndicators(.never)
-            .defaultScrollAnchor(.trailing)
 
             Color.clear
-                .frame(minWidth: 40, maxHeight: .infinity)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(.rect)
                 .onTapGesture { model.isEditingPath = true }
                 .accessibilityLabel("Type a path")
