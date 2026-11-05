@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import SwiftUI
 @testable import FileFinder
 
 @MainActor
@@ -430,4 +431,21 @@ private final class FakeClock {
     private var current = ContinuousClock.now
     func now() -> ContinuousClock.Instant { current }
     func advance(by duration: Duration) { current += duration }
+}
+
+@Suite("Backspace key")
+struct BackspaceKeyTests {
+    @Test("The Mac Backspace key (DEL, U+007F) goes up, with no modifiers or only Caps Lock")
+    func plainBackspace() {
+        #expect(BackspaceKey.goesUp(characters: "\u{7F}", modifiers: []))
+        #expect(BackspaceKey.goesUp(characters: "\u{7F}", modifiers: .capsLock))
+        #expect(BackspaceKey.goesUp(characters: "\u{8}", modifiers: []))
+    }
+
+    @Test("⌘⌫ and other keys don't go up")
+    func otherKeys() {
+        #expect(!BackspaceKey.goesUp(characters: "\u{7F}", modifiers: .command))
+        #expect(!BackspaceKey.goesUp(characters: "\u{7F}", modifiers: .option))
+        #expect(!BackspaceKey.goesUp(characters: "a", modifiers: []))
+    }
 }

@@ -33,7 +33,7 @@ struct PaneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onKeyPress(.space, action: handleSpace)
                 .onKeyPress(.return, action: handleReturn)
-                .onKeyPress(keys: [.delete], action: handleBackspace)
+                .onKeyPress(keys: BackspaceKey.keys, action: handleBackspace)
             if !model.missingEntries.isEmpty {
                 MissingEntriesBar(model: model)
             }
@@ -93,11 +93,24 @@ struct PaneView: View {
         return .handled
     }
 
-    /// Backspace (with no modifiers: ⌘⌫ is Move to Trash) goes up to the enclosing folder.
+    /// Backspace goes up to the enclosing folder.
     private func handleBackspace(_ press: KeyPress) -> KeyPress.Result {
-        guard !model.isTyping, press.modifiers.isEmpty, model.canGoUp else { return .ignored }
+        guard !model.isTyping, model.canGoUp,
+              BackspaceKey.goesUp(characters: press.characters, modifiers: press.modifiers)
+        else { return .ignored }
         model.goUp()
         return .handled
+    }
+}
+
+/// The Mac Backspace key arrives as DEL (U+007F), not as `KeyEquivalent.delete` (U+0008), so
+/// both are matched. Only Caps Lock may be on: ⌘⌫ is Move to Trash.
+enum BackspaceKey {
+    static let keys: Set<KeyEquivalent> = [.delete, KeyEquivalent("\u{7F}")]
+
+    static func goesUp(characters: String, modifiers: EventModifiers) -> Bool {
+        keys.contains(where: { String($0.character) == characters })
+            && modifiers.isDisjoint(with: [.command, .option, .control, .shift])
     }
 }
 
