@@ -16,9 +16,10 @@ final class TerminalPanelModel {
     }
 
     /// Open in Terminal (menu, right-click, `terminal` in the path bar): a shell already in
-    /// `folder` stays; otherwise a new one starts there.
+    /// `folder` stays; otherwise a new one starts there. Folders are compared in canonical form,
+    /// so a trailing slash or a "." / ".." never replaces a running shell.
     func open(in folder: URL) {
-        if session?.folder != folder { session = Session(folder: folder) }
+        if session?.folder.canonical != folder.canonical { session = Session(folder: folder) }
     }
 
     /// The panel's close button. Safe when the shell already ended.
