@@ -15,6 +15,8 @@ nonisolated struct FileItem: Identifiable, Hashable, Sendable {
     let kind: String
     /// When the item was put in its folder (Finder's Date Added).
     var dateAdded: Date? = nil
+    /// `ls -l` style permissions, e.g. `-rw-r--r--` (see `FilePermissions`); empty when unreadable.
+    var permissions: String = ""
 
     var id: URL { url }
 

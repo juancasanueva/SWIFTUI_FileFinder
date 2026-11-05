@@ -29,7 +29,8 @@ nonisolated enum DirectoryLister {
             modificationDate: values.contentModificationDate,
             creationDate: values.creationDate,
             kind: values.localizedTypeDescription ?? (isDirectory ? "Folder" : "Document"),
-            dateAdded: values.addedToDirectoryDate
+            dateAdded: values.addedToDirectoryDate,
+            permissions: FilePermissions.text(atPath: url.path) ?? ""
         )
     }
 }

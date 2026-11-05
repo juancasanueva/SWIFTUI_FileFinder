@@ -24,6 +24,36 @@ struct DirectoryListingTests {
         #expect(items.count == 2)
     }
 
+    @Test("Lists each item's permissions the way ls -l shows them")
+    func listsPermissions() throws {
+        let dir = try TemporaryDirectory()
+        let file = try dir.file("notes.txt")
+        let folder = try dir.folder("Photos")
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o640], ofItemAtPath: file.path)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        try fm.createSymbolicLink(at: dir.url.appending(path: "link"), withDestinationURL: file)
+
+        let items = try DirectoryLister.contents(of: dir.url, showHidden: false)
+        let permissions = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.permissions) })
+
+        #expect(permissions["notes.txt"] == "-rw-r-----")
+        #expect(permissions["Photos"] == "drwxr-xr-x")
+        #expect(permissions["link"]?.first == "l")
+    }
+
+    @Test("Permission text marks setuid, setgid and sticky bits", arguments: [
+        (S_IFREG | 0o4755, "-rwsr-xr-x"),
+        (S_IFREG | 0o2644, "-rw-r-Sr--"),
+        (S_IFDIR | 0o1777, "drwxrwxrwt"),
+        (S_IFDIR | 0o1770, "drwxrwx--T"),
+        (S_IFLNK | 0o755, "lrwxr-xr-x"),
+        (S_IFREG | 0o000, "----------"),
+    ])
+    func permissionText(mode: mode_t, expected: String) {
+        #expect(FilePermissions.text(mode: mode) == expected)
+    }
+
     @Test("Hidden files are excluded unless requested", arguments: [false, true])
     func hiddenFiles(showHidden: Bool) throws {
         let dir = try TemporaryDirectory()

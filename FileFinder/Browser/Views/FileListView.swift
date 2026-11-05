@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// List view: sortable Name / Date Modified / Size / Kind columns.
+/// List view: sortable Name / Date Modified / Size / Kind / Permissions columns.
 struct FileListView: View {
     @Bindable var model: BrowserModel
     @FocusState private var isFocused: Bool
@@ -40,6 +40,13 @@ struct FileListView: View {
                 Text(item.kind).foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 140)
+
+            TableColumn("Permissions", value: \.permissions) { item in
+                Text(item.permissions)
+                    .font(.body.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 90, ideal: 100)
         } rows: {
             if model.groups.isEmpty {
                 ForEach(model.items) { row($0) }
