@@ -37,7 +37,7 @@ struct BrowserCommands: Commands {
             Button("Smart Clean…") { openWindow(id: SmartCleanWindow.id) }
                 .keyboardShortcut(shortcut(.smartClean))
             Divider()
-            Button(DeveloperTools.shared.openTitle(.terminal)) { browser?.openInTerminal() }
+            Button("Open in Terminal") { browser?.openInTerminal() }
                 .keyboardShortcut(shortcut(.openInTerminal))
                 .disabled(browser?.developerFolder == nil || isTyping)
             Button(DeveloperTools.shared.openTitle(.editor)) { browser?.openInEditor() }

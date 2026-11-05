@@ -124,6 +124,35 @@ struct TerminalPanelTests {
         ])
     }
 
+    @Test("Open in Terminal keeps a shell already in that folder, and starts a new one elsewhere")
+    func openIn() throws {
+        let panel = TerminalPanelModel()
+        panel.open(in: folder)
+        let first = try #require(panel.session)
+        panel.open(in: folder)
+        #expect(panel.session == first)
+
+        let other = URL(filePath: "/tmp/Other", directoryHint: .isDirectory)
+        panel.open(in: other)
+        #expect(panel.session?.folder == other)
+        #expect(panel.session != first)
+    }
+
+    @Test("Every pane's Open in Terminal reaches the window's panel, the second pane's too")
+    func panesOpenWindowPanel() throws {
+        let dir = try TemporaryDirectory()
+        let sub = try dir.folder("api")
+        let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+        let window = BrowserWindowModel(restoring: nil, defaultStart: dir.url, defaults: defaults)
+
+        window.active.openInTerminal(sub.canonical)
+        #expect(window.terminal.session?.folder == sub.canonical)
+
+        window.toggleSplit()
+        window.panes[1].openInTerminal(dir.url.canonical)
+        #expect(window.terminal.session?.folder == dir.url.canonical)
+    }
+
     @Test("A window's panel opens in the active pane's folder")
     func windowFolder() throws {
         let dir = try TemporaryDirectory()

@@ -159,7 +159,7 @@ struct DeveloperOpenButtons: View {
     let folder: URL
 
     var body: some View {
-        Button(model.developerTools.openTitle(.terminal)) { model.openInTerminal(folder) }
+        Button("Open in Terminal") { model.openInTerminal(folder) }
         Button(model.developerTools.openTitle(.editor)) { model.openInEditor(folder) }
     }
 }

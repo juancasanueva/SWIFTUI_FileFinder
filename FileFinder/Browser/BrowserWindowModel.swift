@@ -66,8 +66,14 @@ final class BrowserWindowModel {
                 start: start, actions: actions, defaults: defaults, workspaces: workspaces, showing: id)
         }
         activeIndex = min(max(state?.activeIndex ?? 0, 0), panes.count - 1)
+        panes.forEach(connectTerminal)
         // Errors from undo/redo work show in whichever pane is active.
         actions.onBackgroundError = { [weak self] message in self?.active.alertMessage = message }
+    }
+
+    /// A pane's Open in Terminal opens this window's terminal panel.
+    private func connectTerminal(_ pane: BrowserModel) {
+        pane.onOpenTerminal = { [weak self] folder in self?.terminal.open(in: folder) }
     }
 
     var isSplit: Bool { panes.count == 2 }
@@ -90,8 +96,10 @@ final class BrowserWindowModel {
             panes = [active]
             activeIndex = 0
         } else {
-            panes.append(BrowserModel(
-                start: active.currentFolder, actions: actions, defaults: defaults, workspaces: workspaces))
+            let pane = BrowserModel(
+                start: active.currentFolder, actions: actions, defaults: defaults, workspaces: workspaces)
+            connectTerminal(pane)
+            panes.append(pane)
         }
     }
 

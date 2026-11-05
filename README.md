@@ -20,7 +20,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 - **Dual pane**: two panes side by side, copy or move the selection to the other pane, drag to move (hold ⌥ to copy), a transfer queue with progress and Cancel, and a choice of keep both, replace or skip on name conflicts. Both panes are restored after relaunch.
 - **Workspaces**: named pages that gather folders and files from anywhere, including cloud and external drives. Nothing is copied or moved.
 - **Tidy**: moves loose files into folders by kind (Videos, Images, PDFs, Documents, Installers, Other). You see the plan before anything moves, and Undo puts it all back. You can also group a folder by kind or date added without moving anything on disk.
-- **Developer tools**: a built-in Ghostty terminal panel (the Terminal toolbar button opens a shell in the current folder, and reads your Ghostty config); the git branch and uncommitted changes in the path bar (read-only, it never fetches or changes anything); open the current folder in your terminal or editor; type commands such as `code .`, `cursor .`, `xed .` or `zed` in the path bar.
+- **Developer tools**: a built-in Ghostty terminal panel that opens a shell in the current folder and reads your Ghostty config (the Terminal toolbar button shows or hides it; ⌥⇧⌘T, Open in Terminal on a folder and `terminal` in the path bar open it there); the git branch and uncommitted changes in the path bar (read-only, it never fetches or changes anything); open the current folder in your editor; type commands such as `code .`, `cursor .`, `xed .`, `zed` or `warp` in the path bar.
 - **Smart Clean**: shows how full the Mac is, then nine suggestions in two groups. *Safe to clear* starts ticked: developer caches, duplicates (the copy you opened last is kept), installers for apps you already have, and Mail's copies of attachments. *Your call* starts unticked: big files, apps unused for 6 months, old screen recordings, old downloads and leftovers of deleted apps. Everything goes to the Trash first and Undo brings it back. Empty Trash always asks.
 
 ## Keyboard shortcuts
@@ -46,7 +46,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | ⌥⌘N | New workspace |
 | ⌃1–⌃9 | Open a workspace |
 | ⌥⌘T | Tidy this folder |
-| ⌥⇧⌘T | Open the folder in Terminal |
+| ⌥⇧⌘T | Open the folder in the terminal panel |
 | ⌥⇧⌘E | Open the folder in your editor |
 
 These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (click a shortcut, then type the new one; Escape cancels) or in `~/.config/filefinder/keybindings.json` (`$XDG_CONFIG_HOME/filefinder/keybindings.json` when that is set). The file is created with every action on first launch, and edits to it apply while the app runs:

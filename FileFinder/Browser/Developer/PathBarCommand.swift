@@ -6,8 +6,8 @@ nonisolated struct PathBarCommand: Equatable {
     enum Target: Equatable, Sendable {
         /// A `DeveloperApp.id`.
         case app(String)
-        /// The terminal picked in Settings.
-        case preferredTerminal
+        /// The window's Ghostty terminal panel.
+        case terminalPanel
     }
 
     let target: Target
@@ -19,7 +19,7 @@ nonisolated struct PathBarCommand: Equatable {
         "xed": .app("xcode"),
         "zed": .app("zed"),
         "warp": .app("warp"),
-        "terminal": .preferredTerminal,
+        "terminal": .terminalPanel,
     ]
 
     /// The command in `text`, with the folder it names (`base` for none or "."), or `nil` when

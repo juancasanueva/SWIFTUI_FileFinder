@@ -765,7 +765,13 @@ final class BrowserModel {
         return selected.count == 1 && selected[0].isNavigable ? selected[0].url : nil
     }
 
-    func openInTerminal(_ folder: URL? = nil) { openDeveloperApp(.terminal, folder) }
+    /// Set by the window: opens its Ghostty terminal panel in a folder.
+    @ObservationIgnored var onOpenTerminal: ((URL) -> Void)?
+
+    func openInTerminal(_ folder: URL? = nil) {
+        guard let folder = folder ?? developerFolder else { return }
+        onOpenTerminal?(folder)
+    }
     func openInEditor(_ folder: URL? = nil) { openDeveloperApp(.editor, folder) }
 
     /// What Return does in the path bar: go to a typed folder, or run a command such as
@@ -781,8 +787,8 @@ final class BrowserModel {
         isEditingPath = false
         do {
             switch command.target {
-            case .preferredTerminal:
-                try developerTools.openInPreferred(command.folder, role: .terminal)
+            case .terminalPanel:
+                onOpenTerminal?(command.folder)
             case .app(let id):
                 guard let app = (DeveloperApp.editors + DeveloperApp.terminals).first(where: { $0.id == id }) else { return false }
                 try developerTools.open(command.folder, in: app)
