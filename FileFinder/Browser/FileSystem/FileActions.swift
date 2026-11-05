@@ -93,10 +93,13 @@ nonisolated struct BatchResult: Sendable {
 private final class CopyRecord {
     let transfers: [FileTransfer]
     var fileNumbers: [String: Int]
+    /// Whether copies went into the Trash, and whether sources are in it (see `TrashNeeds`).
+    let needsTrash: FileActions.TrashNeeds
 
-    init(transfers: [FileTransfer], fileNumbers: [String: Int]) {
+    init(transfers: [FileTransfer], fileNumbers: [String: Int], needsTrash: FileActions.TrashNeeds) {
         self.transfers = transfers
         self.fileNumbers = fileNumbers
+        self.needsTrash = needsTrash
     }
 }
 
@@ -214,7 +217,8 @@ final class FileActions {
             }
             let result = await Self.performMoves([FileTransfer(from: url, to: destination)], trasher: self.trasher)
             if let error = result.error { throw error }
-            self.registerRelocationUndo("Rename", result.done)
+            let needsTrash = await Self.trashNeeds(result.done, trash: self.trashFolder)
+            self.registerRelocationUndo("Rename", result.done, needsTrash: needsTrash)
             return destination
         }
     }
@@ -248,10 +252,12 @@ final class FileActions {
                     Task { @MainActor in progress.completedBytes = bytes }
                 }
             }
+            let replacedNeeds = await Self.trashNeeds(result.trashed, trash: self.trashFolder)
+            let copiedNeeds = await Self.trashNeeds(result.done, trash: self.trashFolder)
             self.registerAsOneStep(if: !result.done.isEmpty || !result.trashed.isEmpty) {
-                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
+                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed, needsTrash: replacedNeeds) }
                 if !result.done.isEmpty {
-                    self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers))
+                    self.registerCopyUndo(CopyRecord(transfers: result.done, fileNumbers: result.fileNumbers, needsTrash: copiedNeeds))
                 }
             }
             if let error = result.error { throw error }
@@ -270,9 +276,11 @@ final class FileActions {
             let sources = urls.filter { !Self.isSameFolder($0.deletingLastPathComponent(), folder) }
             let plan = try await Self.resolvedPlan(sources, into: folder, copying: false, resolver: resolveConflicts)
             let result = await Self.performMoves(plan.transfers, replacing: plan.replacing, trasher: self.trasher)
+            let replacedNeeds = await Self.trashNeeds(result.trashed, trash: self.trashFolder)
+            let movedNeeds = await Self.trashNeeds(result.done, trash: self.trashFolder)
             self.registerAsOneStep(if: !result.done.isEmpty || !result.trashed.isEmpty) {
-                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed) }
-                if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done) }
+                if !result.trashed.isEmpty { self.registerRelocationUndo("Replace", result.trashed, needsTrash: replacedNeeds) }
+                if !result.done.isEmpty { self.registerRelocationUndo("Move", result.done, needsTrash: movedNeeds) }
             }
             if let error = result.error { throw error }
             return result.done.map(\.to)
@@ -301,7 +309,8 @@ final class FileActions {
             let url = Self.uniqueDestination(
                 for: folder.appendingPathComponent("untitled folder"), in: folder, copyStyle: false)
             try await Self.performCreateFolder(url)
-            self.registerNewFolderUndo(url)
+            let inTrash = await Self.trashNeeds([FileTransfer(from: url, to: url)], trash: self.trashFolder).undo
+            self.registerNewFolderUndo(url, inTrash: inTrash)
             return url
         }
     }
@@ -340,9 +349,13 @@ final class FileActions {
             let result = await Self.performMoves(transfers, trasher: self.trasher)
             // Folders first, so undo (which runs in reverse) moves the files out before checking
             // whether the folders are empty.
+            let createdInTrash = await Self.trashNeeds(created.map { FileTransfer(from: $0, to: $0) }, trash: self.trashFolder).undo
+            let movedNeeds = await Self.trashNeeds(result.done, trash: self.trashFolder)
             self.registerAsOneStep(if: !created.isEmpty || !result.done.isEmpty) {
-                for folder in created { self.registerNewFolderUndo(folder, actionName: "Tidy", reuseExisting: true) }
-                if !result.done.isEmpty { self.registerRelocationUndo("Tidy", result.done) }
+                for folder in created {
+                    self.registerNewFolderUndo(folder, inTrash: createdInTrash, actionName: "Tidy", reuseExisting: true)
+                }
+                if !result.done.isEmpty { self.registerRelocationUndo("Tidy", result.done, needsTrash: movedNeeds) }
             }
             if let error = setupError ?? result.error { throw error }
             return result.done.map(\.to)
@@ -355,7 +368,8 @@ final class FileActions {
     func trash(_ urls: [URL], actionName: String = "Move to Trash") async throws {
         try await serialized {
             let result = await Self.performTrash(urls, trasher: self.trasher)
-            if !result.done.isEmpty { self.registerRelocationUndo(actionName, result.done) }
+            let needsTrash = await Self.trashNeeds(result.done, trash: self.trashFolder)
+            if !result.done.isEmpty { self.registerRelocationUndo(actionName, result.done, needsTrash: needsTrash) }
             if let error = result.error { throw error }
         }
     }
@@ -728,21 +742,30 @@ final class FileActions {
 
     // MARK: - Undo registration
 
+    /// Whether undoing a step needs the Trash (its items went there, `undo`) and whether redoing
+    /// it does (they came from there, `redo`): emptying the Trash breaks those steps.
+    nonisolated struct TrashNeeds: Sendable {
+        var undo = false, redo = false
+    }
+
+    /// The Trash needs of `transfers` (a trip into the Trash, a move out, a rename in it), worked
+    /// out off the main actor: it reads each folder above an item, which can be slow on a
+    /// network volume.
+    @concurrent nonisolated static func trashNeeds(_ transfers: [FileTransfer], trash: URL) async -> TrashNeeds {
+        TrashNeeds(
+            undo: transfers.contains { isInTrash($0.to, trash: trash) },
+            redo: transfers.contains { isInTrash($0.from, trash: trash) })
+    }
+
     /// `done` already happened; undoing it moves those items back.
-    private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer]) {
-        // Undo moves items from where they went, redo from where they were: each needs the
-        // Trash when those places are in it (a trip into the Trash, a move out, a rename in it).
-        let needsTrash = (
-            undo: done.contains { self.isInTrash($0.to) },
-            redo: done.contains { self.isInTrash($0.from) })
+    private func registerRelocationUndo(_ actionName: String, _ done: [FileTransfer], needsTrash: TrashNeeds) {
         registerRelocationUndo(actionName, RelocationRecord(transfers: done), needsTrash: needsTrash)
     }
 
-    /// Whether `url` is inside `trashFolder`, the Trash that Empty Trash empties; another
-    /// folder named ".Trash" or another volume's `.Trashes` isn't emptied, so its steps keep working.
-    /// Compared by folder identity, so a path spelled through a link or in other letter case
-    /// counts too.
-    private func isInTrash(_ url: URL) -> Bool {
+    /// Whether `url` is inside `trash`, the Trash that Empty Trash empties; another folder named
+    /// ".Trash" or another volume's `.Trashes` isn't emptied, so its steps keep working. Compared
+    /// by folder identity, so a path spelled through a link or in other letter case counts too.
+    nonisolated static func isInTrash(_ url: URL, trash trashFolder: URL) -> Bool {
         if url.canonical.path.hasPrefix(trashFolder.path + "/") { return true }
         var trash = stat()
         guard stat(trashFolder.path, &trash) == 0 else { return false }
@@ -761,12 +784,12 @@ final class FileActions {
     /// this entry moves items out of the Trash (emptying it breaks the entry, see
     /// `dropTrashUndo`); `needsTrash.redo`, the same for the entry it registers in turn.
     private func registerRelocationUndo(
-        _ actionName: String, _ record: RelocationRecord, needsTrash: (undo: Bool, redo: Bool)
+        _ actionName: String, _ record: RelocationRecord, needsTrash: TrashNeeds
     ) {
         registerUndo(actionName, target: needsTrash.undo ? trashUndoTarget : self) { actions in
             let trasher = actions.trasher
             let reverse = RelocationRecord(transfers: [])
-            actions.registerRelocationUndo(actionName, reverse, needsTrash: (undo: needsTrash.redo, redo: needsTrash.undo))
+            actions.registerRelocationUndo(actionName, reverse, needsTrash: TrashNeeds(undo: needsTrash.redo, redo: needsTrash.undo))
             actions.enqueue {
                 // Read the record when the work runs: the step before it has finished by then.
                 let plan = record.transfers.reversed().map(\.reversed)
@@ -780,8 +803,7 @@ final class FileActions {
     /// Undoing a copy trashes the copies that are still the files it created.
     private func registerCopyUndo(_ record: CopyRecord) {
         // Copies made in the Trash are gone once it is emptied.
-        let intoTrash = record.transfers.contains { self.isInTrash($0.to) }
-        registerUndo("Copy", target: intoTrash ? trashUndoTarget : self) { actions in
+        registerUndo("Copy", target: record.needsTrash.undo ? trashUndoTarget : self) { actions in
             actions.registerRecopyUndo(record)
             let trasher = actions.trasher
             actions.enqueue {
@@ -796,8 +818,7 @@ final class FileActions {
     /// Redoing a copy copies the same sources to the same names, skipping names now taken.
     private func registerRecopyUndo(_ record: CopyRecord) {
         // Redoing copies the sources again: impossible once they are emptied from the Trash.
-        let fromTrash = record.transfers.contains { self.isInTrash($0.from) }
-        registerUndo("Copy", target: fromTrash ? trashUndoTarget : self) { actions in
+        registerUndo("Copy", target: record.needsTrash.redo ? trashUndoTarget : self) { actions in
             actions.registerCopyUndo(record)
             let copier = actions.copier, trasher = actions.trasher
             actions.enqueue {
@@ -811,17 +832,17 @@ final class FileActions {
     /// Undoing New Folder trashes the folder, but only while it is still empty. With
     /// `reuseExisting`, redo accepts a folder that is still there (Tidy: undo left it because
     /// something else was put in it) instead of reporting it.
-    private func registerNewFolderUndo(_ url: URL, actionName: String = "New Folder", reuseExisting: Bool = false) {
-        registerUndo(actionName, target: isInTrash(url) ? trashUndoTarget : self) { actions in
-            actions.registerRecreateFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
+    private func registerNewFolderUndo(_ url: URL, inTrash: Bool, actionName: String = "New Folder", reuseExisting: Bool = false) {
+        registerUndo(actionName, target: inTrash ? trashUndoTarget : self) { actions in
+            actions.registerRecreateFolderUndo(url, inTrash: inTrash, actionName: actionName, reuseExisting: reuseExisting)
             let trasher = actions.trasher
             actions.enqueue { await Self.performTrashIfEmpty(url, trasher: trasher) }
         }
     }
 
-    private func registerRecreateFolderUndo(_ url: URL, actionName: String, reuseExisting: Bool) {
+    private func registerRecreateFolderUndo(_ url: URL, inTrash: Bool, actionName: String, reuseExisting: Bool) {
         registerUndo(actionName) { actions in
-            actions.registerNewFolderUndo(url, actionName: actionName, reuseExisting: reuseExisting)
+            actions.registerNewFolderUndo(url, inTrash: inTrash, actionName: actionName, reuseExisting: reuseExisting)
             actions.enqueue {
                 do {
                     var isDirectory: ObjCBool = false

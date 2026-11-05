@@ -677,8 +677,13 @@ struct SmartCleanTests {
         let alias = dir.url.appending(path: "TrashAlias")
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: dir.url.appending(path: ".Trash"))
         _ = try await actions.copy([first], into: alias)
-        _ = try await actions.copy([second], into: dir.url.appending(path: ".TRASH"))
-        #expect(exists(".Trash/a.txt") && exists(".Trash/b.txt"))
+        #expect(exists(".Trash/a.txt"))
+        // Other letter case names the same folder only on a case-insensitive volume.
+        let caseSensitive = try dir.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames ?? false
+        if !caseSensitive {
+            _ = try await actions.copy([second], into: dir.url.appending(path: ".TRASH"))
+            #expect(exists(".Trash/b.txt"))
+        }
 
         actions.dropTrashUndo()
 
