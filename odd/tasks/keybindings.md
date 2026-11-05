@@ -22,7 +22,6 @@ Branch: `feat/keybindings` from `main` (4a16335). Delivery: ask-on-risk; work-un
 - [x] T1 S2,S3 — KeyBindings model: action catalog with titles and defaults, shortcut text parse/format, store (create, merge, damaged file set aside, save, set/clear/reset, external edits reloaded) — inline — ce15389 (tests written first; RED not run: they couldn't compile without the types; GREEN 14/14)
 - [x] T2 S4 — menu commands take their shortcuts from the store — inline — c27e738 (no unit RED: SwiftUI menus can't be driven in tests; 31 shortcuts swapped one-for-one for their KeyAction, Tidy Downloads and Smart Clean added; full suite 357)
 - [x] T3 S1,S5 — Settings: General and Keyboard tabs, shortcut recorder, clear, reset, Restore Defaults, open file; README — inline — 2e02e9e (RED observed for the key-press conversion: no such initializer; GREEN; full suite 359; Settings UI built, not runtime-driven)
-
 - [x] T4 S3,S5 — L5 verifier findings: a broken file saved while the app runs is left alone; damaged backups never overwrite each other; Settings refuses keys needed for typing — inline — 902e3d0 (RED observed: 4 issues, then compile errors for typesText; GREEN 362)
 
 Route evidence: T2 and T3 depend on T1; one area, sequential; no Writer trigger.
