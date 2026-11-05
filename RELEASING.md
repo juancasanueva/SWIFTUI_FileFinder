@@ -96,8 +96,11 @@ repackage, Verify (Gatekeeper, staple, signature, hardened runtime, Developer ID
 team, **no app-sandbox entitlement**, architecture, version, build, bundle name
 and identifier, no release files inside the bundle), Smoke (launch the delivered
 app; it must still be running 20 s later), fetch the Sparkle tools and
-the live feed, **Publish** (`gh release create --verify-tag --generate-notes`),
-build the appcast, deploy to Pages, delete the keychain.
+the live feed. Then the floor job verifies and launches the same zip again on
+GitHub's `macos-15` image, the app's oldest supported macOS. Only when both
+jobs pass does the publish job run: **Publish** (`gh release create
+--verify-tag --generate-notes`), build the appcast, deploy to Pages. The build
+job deletes its keychain whatever happens.
 
 A tag with a hyphen (`v1.1.0-rc.1`) publishes a **prerelease** with no feed entry,
 so installed copies are never offered it. That is how to rehearse the pipeline
@@ -110,7 +113,7 @@ What every delivery channel binds to:
 | Asset | `https://github.com/juancasanueva/SWIFTUI_FileFinder/releases/download/v<version>/FileFinder-<version>.zip` |
 | Bundle | `FileFinder.app`, `Contents/MacOS/FileFinder`, identifier `com.juancasanueva.FileFinder` |
 | Signature | Developer ID Application, team `Z3S5JK8E38`, hardened runtime, no sandbox, notarized and stapled |
-| Floor | macOS 27.2 (`MINIMUM_SYSTEM_VERSION` in `scripts/appcast.sh` equals `MACOSX_DEPLOYMENT_TARGET`), Apple silicon only |
+| Floor | macOS 15.0 (`MINIMUM_SYSTEM_VERSION` in `scripts/appcast.sh` equals `MACOSX_DEPLOYMENT_TARGET`, and the floor job runs on `macos-15`), Apple silicon only |
 | Feed | `https://juancasanueva.github.io/SWIFTUI_FileFinder/appcast.xml`, republished on every stable tag |
 
 The bundle is `FileFinder.app` because the app target's `PRODUCT_NAME` is its
@@ -206,10 +209,13 @@ release by publishing a higher version.
   Sparkle cannot replace a sandboxed app's bundle without its XPC installer
   setup, so the pipeline refuses one. Keep `ENABLE_APP_SANDBOX = NO`.
 - **Smoke failed.** The delivered app exited within 20 s; the last lines of
-  `build/smoke.log` are printed. Nothing was published.
+  `build/smoke.log` are printed. Nothing was published. When only the floor
+  job fails, the app uses something macOS 15 doesn't have at run time.
+  Guard it with `if #available`, or raise the floor (the project's
+  `MACOSX_DEPLOYMENT_TARGET`, `MINIMUM_SYSTEM_VERSION`, the floor job's
+  `runs-on`, the README and the cask, all together).
 - **Pin Xcode fails.** The `xcode-27` runner image (a public preview) dropped
-  Xcode 27.2; update the pin to an Xcode the runner offers that still has the
-  macOS 27.2 SDK. A code change can compile locally and still fail at Archive on
+  Xcode 27.2; update the pin to an Xcode the runner offers. A code change can compile locally and still fail at Archive on
   a different Xcode. Nothing is published when it does.
 - **Stopped at the distinct-commit gate.** This commit already deployed the
   feed successfully. Put the new version on a new commit and tag that. If the

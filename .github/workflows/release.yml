@@ -22,25 +22,22 @@ concurrency:
   group: release-feed
   cancel-in-progress: false        # never cancel a run mid-notarization
 
+# Three jobs. `build` signs, notarizes and launches the app on the build
+# machine; `smoke-floor` verifies and launches the same zip on the oldest macOS
+# the app supports; `publish` runs only when both passed, so a release that
+# cannot start on the floor is never published or offered by the feed.
 jobs:
-  release:
-    # GitHub's Xcode 27 image (public preview): the app targets macOS 27.2, which
-    # the macos-26 image's Xcode 26 can't build.
+  build:
+    # GitHub's Xcode 27 image (public preview): the release is built with the
+    # macOS 27.2 SDK, which the macos-26 image's Xcode 26 doesn't have.
     runs-on: xcode-27
     timeout-minutes: 90
-    # A job-level `permissions:` block **replaces** the workflow-level one
-    # rather than extending it, so `contents: write` is restated here or
-    # `gh release create` silently loses its token — a failure that would only
-    # appear on a real tag, after Apple had already been asked for a
-    # notarization round trip. `pages: write` authorizes the Pages deployment
-    # and `id-token: write` is what mints the OIDC token that deployment must
-    # present.
+    # A job-level `permissions:` block **replaces** the workflow-level one.
+    # This job publishes nothing: it reads the repository and, for the
+    # distinct-commit gate, the Pages deployment state.
     permissions:
-      contents: write
-      pages: write
-      id-token: write
-    # GitHub requires Pages deployments to target this environment.
-    environment: github-pages
+      contents: read
+      pages: read
     steps:
       - name: Refuse to publish from a private repository
         if: ${{ github.event.repository.private }}
@@ -103,9 +100,8 @@ jobs:
 
       # The release is built with Xcode 27.2 and its macOS 27.2 SDK. On this image
       # `Xcode_27.2.app` is the 27.2 Release Candidate (27B48), while the project
-      # was made with the 27.2 release (27B52). The deployment target is macOS 27.2, which no
-      # older SDK can build. A prerelease tag is what proves the app still
-      # compiles on this image.
+      # was made with the 27.2 release (27B52). A prerelease tag is what proves
+      # the app still compiles on this image.
       - name: Pin Xcode
         run: sudo xcode-select -s /Applications/Xcode_27.2.app
 
@@ -174,6 +170,85 @@ jobs:
 
       - name: Record signing evidence
         run: codesign -dvvv --entitlements :- "build/export/FileFinder.app" 2>&1
+
+      # The notarized, stapled zip is handed to the next jobs as is: the floor
+      # job launches these bytes and the publish job uploads and signs them.
+      - name: Hand the notarized zip to the next jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-zip
+          path: build/FileFinder-${{ env.VERSION }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Delete the ephemeral keychain and the API key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/filefinder-release.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/cert.p12"
+
+  # The build machine runs a newer macOS than the app's floor
+  # (`MINIMUM_SYSTEM_VERSION` in scripts/appcast.sh), so the delivered zip is
+  # verified (Gatekeeper, staple, signature) and launched on the floor's own
+  # runner image too. It holds no secret.
+  smoke-floor:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Derive version from tag
+        run: |
+          set -euo pipefail
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Fetch the notarized zip
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-zip
+          path: build
+
+      - name: Verify the extracted artifact on the floor
+        run: scripts/release.sh verify
+
+      - name: Smoke-launch the delivered app on the floor
+        run: scripts/release.sh smoke
+
+  publish:
+    needs: [build, smoke-floor]
+    runs-on: macos-15
+    timeout-minutes: 30
+    # A job-level `permissions:` block **replaces** the workflow-level one
+    # rather than extending it, so `contents: write` is restated here or
+    # `gh release create` silently loses its token. `pages: write` authorizes
+    # the Pages deployment and `id-token: write` is what mints the OIDC token
+    # that deployment must present.
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    # GitHub requires Pages deployments to target this environment.
+    environment: github-pages
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Derive version from tag
+        run: |
+          set -euo pipefail
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Fetch the notarized zip
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-zip
+          path: build
 
       # The pinned Sparkle tools are downloaded and digest-checked here,
       # **before** the release exists, for the same reason the feed is fetched
@@ -261,9 +336,3 @@ jobs:
       - name: Deploy to Pages
         if: ${{ !contains(github.ref_name, '-') }}
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
-
-      - name: Delete the ephemeral keychain and the API key
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/filefinder-release.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/cert.p12"

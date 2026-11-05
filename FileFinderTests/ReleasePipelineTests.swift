@@ -280,6 +280,30 @@ struct ReleaseWorkflowContractTests {
         #expect(groups == ["release-feed"])
     }
 
+    /// The build machine runs a newer macOS than the app's floor, so the
+    /// delivered zip is also verified and launched on the floor's own runner
+    /// image, and nothing is published unless that job passes.
+    @Test func theDeliveredAppRunsOnTheFloorBeforePublishing() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let floorStart = try #require(workflow.range(of: "\n  smoke-floor:\n"))
+        let publishStart = try #require(workflow.range(of: "\n  publish:\n"))
+        #expect(floorStart.upperBound < publishStart.lowerBound)
+        let floorJob = String(workflow[floorStart.upperBound..<publishStart.lowerBound])
+        let publishJob = String(workflow[publishStart.upperBound...])
+
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.appcastScript)
+        let floor = try #require(
+            ReleasePipelineSources.captures(#"^MINIMUM_SYSTEM_VERSION="([0-9]+)\."#, in: script).first
+        )
+        #expect(floorJob.contains("runs-on: macos-\(floor)\n"))
+        #expect(floorJob.contains("run: scripts/release.sh verify"))
+        #expect(floorJob.contains("run: scripts/release.sh smoke"))
+        #expect(!floorJob.contains("secrets."), "the floor job needs no secret")
+
+        #expect(publishJob.contains("needs: [build, smoke-floor]"))
+        #expect(publishJob.contains(#"gh release create "$GITHUB_REF_NAME""#))
+    }
+
     @Test func everyActionIsPinnedToACommitSHA() throws {
         let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
         let uses = try ReleasePipelineSources.captures(#"uses: (\S+)"#, in: workflow)

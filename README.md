@@ -8,7 +8,7 @@ A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the w
 brew install --cask juancasanueva/tap/filefinder
 ```
 
-Apple silicon and macOS 27.2 or later only. Or download `FileFinder-<version>.zip` from [Releases](https://github.com/juancasanueva/SWIFTUI_FileFinder/releases).
+Apple silicon and macOS 15 or later only. Or download `FileFinder-<version>.zip` from [Releases](https://github.com/juancasanueva/SWIFTUI_FileFinder/releases).
 
 The app updates itself through Sparkle: choose **FileFinder ▸ Check for Updates…**, or turn on automatic checks in Settings ▸ General.
 
@@ -61,8 +61,8 @@ A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with
 
 ## Requirements
 
-- macOS 27.2 or later
-- Xcode with the macOS 27.2 SDK
+- macOS 15 or later to run it
+- Xcode 27.2 to build it (the release uses the macOS 27.2 SDK)
 
 The app runs without the App Sandbox so it can browse the whole disk. Full Disk Access is optional and only needed for protected folders.
 

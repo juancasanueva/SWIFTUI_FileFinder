@@ -105,7 +105,7 @@ SPARKLE_TOOLS_MARKER=".pinned-sha256"
 # MACOSX_DEPLOYMENT_TARGET, and `AppcastScriptContractTests` reads both and fails
 # when they disagree: a feed advertising a lower floor than the build really has
 # offers an update that a Mac on an older macOS cannot launch.
-MINIMUM_SYSTEM_VERSION="27.2"
+MINIMUM_SYSTEM_VERSION="15.0"
 
 # --- fetch -------------------------------------------------------------------
 # The merged feed replaces the live one wholesale, so what counts as "no feed
