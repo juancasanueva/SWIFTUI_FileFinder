@@ -9,7 +9,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
     // View
-    case splitView, switchPane, swapPanes, viewAsList, viewAsCards
+    case splitView, focusLeftPane, focusRightPane, swapPanes, viewAsList, viewAsCards
     case biggerIcons, smallerIcons, togglePreview, toggleHiddenFiles
     // Go
     case goBack, goForward, enclosingFolder, goHome, goDesktop, goDocuments, goDownloads, goToFolder
@@ -26,7 +26,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .newFolder, .newWorkspace, .open, .tidyFolder, .tidyDownloads, .smartClean,
              .openInTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
-        case .splitView, .switchPane, .swapPanes, .viewAsList, .viewAsCards,
+        case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
         case .goBack, .goForward, .enclosingFolder, .goHome, .goDesktop, .goDocuments, .goDownloads, .goToFolder: .go
         }
@@ -51,7 +51,8 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .moveItemHere: "Move Item Here"
         case .selectAll: "Select All"
         case .splitView: "Split View"
-        case .switchPane: "Switch Pane"
+        case .focusLeftPane: "Focus Left Pane"
+        case .focusRightPane: "Focus Right Pane"
         case .swapPanes: "Swap Panes"
         case .viewAsList: "as List"
         case .viewAsCards: "as Cards"
@@ -89,7 +90,8 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .moveItemHere: "cmd+alt+v"
         case .selectAll: "cmd+a"
         case .splitView: "cmd+d"
-        case .switchPane: "tab"
+        case .focusLeftPane: "cmd+alt+left"
+        case .focusRightPane: "cmd+alt+right"
         case .swapPanes: "cmd+u"
         case .viewAsList: "cmd+1"
         case .viewAsCards: "cmd+2"

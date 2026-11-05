@@ -76,9 +76,12 @@ struct BrowserCommands: Commands {
             Button(window?.isSplit == true ? "Close Split View" : "Split View") { window?.toggleSplit() }
                 .keyboardShortcut(shortcut(.splitView))
                 .disabled(window == nil || isTyping)
-            // A bare Tab: disabled while typing so text fields keep Tab (path completion).
-            Button("Switch Pane") { window?.switchPane() }
-                .keyboardShortcut(shortcut(.switchPane))
+            // Disabled while typing, so text fields keep their own ⌥⌘ arrow keys.
+            Button("Focus Left Pane") { window?.focusPane(at: 0) }
+                .keyboardShortcut(shortcut(.focusLeftPane))
+                .disabled(!(window?.isSplit ?? false) || isTyping)
+            Button("Focus Right Pane") { window?.focusPane(at: 1) }
+                .keyboardShortcut(shortcut(.focusRightPane))
                 .disabled(!(window?.isSplit ?? false) || isTyping)
             Button("Swap Panes") { window?.swapPanes() }
                 .keyboardShortcut(shortcut(.swapPanes))

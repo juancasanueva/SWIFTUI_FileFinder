@@ -39,7 +39,7 @@ struct BrowserWindowModelTests {
     func unsplitKeepsActivePane() throws {
         let window = makeWindow()
         window.toggleSplit()
-        window.switchPane()
+        window.focusPane(at: 1)
         let right = window.active
         right.navigate(to: try dir.folder("right"))
 
@@ -49,17 +49,23 @@ struct BrowserWindowModelTests {
         #expect(window.panes.count == 1)
     }
 
-    @Test("Tab switches the active pane; with one pane it does nothing")
-    func switchPane() {
+    @Test("⌥⌘← and ⌥⌘→ focus the left and right pane; a missing pane is ignored")
+    func focusPane() {
         let window = makeWindow()
-        window.switchPane()
+        window.focusPane(at: 1)
         #expect(window.activeIndex == 0)
 
         window.toggleSplit()
-        window.switchPane()
+        let rightRequests = window.panes[1].focusRequest
+        window.focusPane(at: 1)
         #expect(window.activeIndex == 1)
-        window.switchPane()
+        #expect(window.panes[1].focusRequest == rightRequests + 1)
+        window.focusPane(at: 1)
+        #expect(window.activeIndex == 1)
+        let leftRequests = window.panes[0].focusRequest
+        window.focusPane(at: 0)
         #expect(window.activeIndex == 0)
+        #expect(window.panes[0].focusRequest == leftRequests + 1)
     }
 
     @Test("⌘U swaps the panes; the active pane stays active on its new side")
@@ -212,7 +218,7 @@ struct BrowserWindowModelTests {
         let window = makeWindow()
         window.active.navigate(to: left)
         window.toggleSplit()
-        window.switchPane()
+        window.focusPane(at: 1)
         window.active.navigate(to: right)
 
         let restored = makeWindow(restoring: try WindowState(encoded: window.state.encoded))

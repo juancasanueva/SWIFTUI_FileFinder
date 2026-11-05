@@ -65,6 +65,9 @@ struct ShortcutTextTests {
         #expect(KeyAction.goBack.defaultShortcut?.text == "cmd+[")
         #expect(KeyAction.copyToOtherPane.defaultShortcut?.text == "f5")
         #expect(KeyAction.smartClean.defaultShortcut == nil)
+        #expect(KeyAction.focusLeftPane.defaultShortcut?.text == "cmd+alt+left")
+        #expect(KeyAction.focusRightPane.defaultShortcut?.text == "cmd+alt+right")
+        #expect(KeyAction.focusLeftPane.defaultShortcut?.display == "⌥⌘←")
         // No two actions share a default.
         let defaults = KeyAction.allCases.compactMap(\.defaultShortcut)
         #expect(Set(defaults).count == defaults.count)

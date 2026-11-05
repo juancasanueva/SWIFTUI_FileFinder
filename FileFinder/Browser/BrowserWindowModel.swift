@@ -94,9 +94,11 @@ final class BrowserWindowModel {
         }
     }
 
-    func switchPane() {
-        guard isSplit else { return }
-        activeIndex = 1 - activeIndex
+    /// Makes the pane at `index` (0 is the left one) active and moves focus to its files;
+    /// does nothing when there is no such pane.
+    func focusPane(at index: Int) {
+        guard panes.indices.contains(index) else { return }
+        activeIndex = index
         active.focusRequest += 1
     }
 

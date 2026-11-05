@@ -26,7 +26,7 @@ A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the w
 | ⇧⌘P | Preview pane |
 | ⌘Z | Undo |
 | ⌘D | Split into two panes, or back to one |
-| Tab | Switch panes |
+| ⌥⌘← / ⌥⌘→ | Focus the left / right pane |
 | ⌘U | Swap panes |
 | F5 / F6 | Copy / move the selection to the other pane |
 | ⌥⌘N | New workspace |
