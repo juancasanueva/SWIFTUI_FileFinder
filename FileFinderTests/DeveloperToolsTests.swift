@@ -99,19 +99,20 @@ struct DeveloperToolsTests {
         return BrowserModel(start: dir.url, defaults: defaults, workspaces: store, developerTools: tools(installed))
     }
 
-    @Test("The pane opens the folder it's in, or a right-clicked folder")
+    @Test("The pane opens the folder it's in, or a right-clicked folder; the terminal is the panel")
     func paneOpensFolder() async throws {
         let sub = try dir.folder("app")
         let pane = try makePane(["com.apple.Terminal", "com.microsoft.VSCode"])
+        var terminalFolders: [URL] = []
+        pane.onOpenTerminal = { terminalFolders.append($0) }
         await pane.reload()
 
         pane.openInTerminal()
+        pane.openInTerminal(sub.canonical)
         pane.openInEditor(sub.canonical)
 
-        #expect(opened.requests == [
-            .folder(dir.url.canonical, app: URL(filePath: "/Applications/com.apple.Terminal.app")),
-            .folder(sub.canonical, app: URL(filePath: "/Applications/com.microsoft.VSCode.app")),
-        ])
+        #expect(terminalFolders == [dir.url.canonical, sub.canonical])
+        #expect(opened.requests == [.folder(sub.canonical, app: URL(filePath: "/Applications/com.microsoft.VSCode.app"))])
         #expect(pane.alertMessage == nil)
     }
 
@@ -130,8 +131,11 @@ struct DeveloperToolsTests {
         pane.selection = [sub.canonical]
         #expect(pane.developerFolder == sub.canonical)
 
+        var terminalFolders: [URL] = []
+        pane.onOpenTerminal = { terminalFolders.append($0) }
         pane.openInTerminal()
-        #expect(opened.requests == [.folder(sub.canonical, app: URL(filePath: "/Applications/com.apple.Terminal.app"))])
+        #expect(terminalFolders == [sub.canonical])
+        #expect(opened.requests.isEmpty)
     }
 
     @Test("Without an installed editor the pane says so")
@@ -168,7 +172,7 @@ struct PathBarCommandTests {
 
     @Test("The reference commands name their apps", arguments: [
         ("code .", PathBarCommand.Target.app("vscode")), ("cursor .", .app("cursor")), ("xed .", .app("xcode")),
-        ("zed", .app("zed")), ("warp", .app("warp")), ("terminal", .preferredTerminal), ("  Code  . ", .app("vscode")),
+        ("zed", .app("zed")), ("warp", .app("warp")), ("terminal", .terminalPanel), ("  Code  . ", .app("vscode")),
     ])
     func parse(text: String, target: PathBarCommand.Target) throws {
         let command = try #require(PathBarCommand.parse(text, relativeTo: dir.url))
@@ -186,17 +190,19 @@ struct PathBarCommandTests {
         #expect(PathBarCommand.parse("", relativeTo: dir.url) == nil)
     }
 
-    @Test("Typing `code .` opens the folder in VS Code; `terminal` uses the Settings terminal")
+    @Test("Typing `code .` opens the folder in VS Code; `terminal` opens the terminal panel")
     func runs() async throws {
         let pane = makePane(["com.microsoft.VSCode", "com.googlecode.iterm2"])
         let sub = try dir.folder("api")
+        var terminalFolders: [URL] = []
+        pane.onOpenTerminal = { terminalFolders.append($0) }
 
         #expect(pane.submitPath("code ."))
         #expect(pane.submitPath("terminal api"))
 
+        #expect(terminalFolders == [sub.canonical])
         #expect(opened.requests == [
             .folder(dir.url.canonical, app: URL(filePath: "/Applications/com.microsoft.VSCode.app")),
-            .folder(sub.canonical, app: URL(filePath: "/Applications/com.googlecode.iterm2.app")),
         ])
         #expect(pane.currentFolder == dir.url.canonical)
     }

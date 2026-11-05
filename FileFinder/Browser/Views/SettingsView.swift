@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings (⌘,): General (hidden files, the terminal and editor folders open in, and updates) and Keyboard
+/// Settings (⌘,): General (hidden files, the editor folders open in, and updates) and Keyboard
 /// (the menu shortcuts, kept in keybindings.json).
 struct SettingsView: View {
     let tools: DeveloperTools
@@ -36,7 +36,6 @@ private struct GeneralSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section {
-                AppPicker(title: "Terminal", role: .terminal, tools: tools)
                 AppPicker(title: "Editor", role: .editor, tools: tools)
             } footer: {
                 Text(LocalizedStringKey(footer))   // renders the `code` spans
@@ -60,8 +59,8 @@ private struct GeneralSettings: View {
         let terminal = keys.shortcut(for: .openInTerminal)?.display
         let editor = keys.shortcut(for: .openInEditor)?.display
         let keysText = switch (terminal, editor) {
-        case let (terminal?, editor?): "\(terminal) opens the current folder in the terminal, \(editor) in the editor. "
-        case let (terminal?, nil): "\(terminal) opens the current folder in the terminal. "
+        case let (terminal?, editor?): "\(terminal) opens the current folder in the terminal panel, \(editor) in the editor. "
+        case let (terminal?, nil): "\(terminal) opens the current folder in the terminal panel. "
         case let (nil, editor?): "\(editor) opens the current folder in the editor. "
         case (nil, nil): ""
         }
