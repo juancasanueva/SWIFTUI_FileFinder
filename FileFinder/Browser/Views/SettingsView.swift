@@ -46,7 +46,10 @@ private struct GeneralSettings: View {
             if let updater { UpdatesSection(updater: updater) }
         }
         .formStyle(.grouped)
+        // A grouped Form under-reports its height, so the window would open with a scroll bar;
+        // the ideal height fits every section.
         .frame(width: 460)
+        .frame(idealHeight: updater == nil ? 260 : 380)
         .fixedSize(horizontal: false, vertical: true)
     }
 
