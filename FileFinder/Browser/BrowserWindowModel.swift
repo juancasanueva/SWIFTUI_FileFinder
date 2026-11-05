@@ -41,6 +41,7 @@ final class BrowserWindowModel {
     private(set) var activeIndex = 0
     @ObservationIgnored private let defaults: UserDefaults
     let workspaces: WorkspaceStore
+    let terminal = TerminalPanelModel()
 
     init(
         restoring state: WindowState? = nil,

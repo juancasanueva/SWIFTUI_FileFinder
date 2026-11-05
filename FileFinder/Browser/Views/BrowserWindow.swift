@@ -36,10 +36,19 @@ private struct BrowserWindowContent: View {
             SidebarView(model: active, window: window)
         } detail: {
             VStack(spacing: 0) {
-                PaneSplit(panes: window.panes) { pane in
-                    PaneView(
-                        model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
-                        onActivate: { window.activate(pane) })
+                VSplitView {
+                    PaneSplit(panes: window.panes) { pane in
+                        PaneView(
+                            model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
+                            onActivate: { window.activate(pane) })
+                    }
+                    .frame(minHeight: 160)
+                    if let session = window.terminal.session {
+                        TerminalPanel(session: session, panel: window.terminal)
+                            .id(session.id)
+                            // VSplitView sizes a new pane by its minimum; drag the divider for more.
+                            .frame(minHeight: 200)
+                    }
                 }
                 TransferBar(actions: window.actions)
                 FunctionKeyBar(window: window, keys: .shared)
@@ -82,9 +91,8 @@ private struct BrowserWindowContent: View {
             .help("Split into two panes (⌘D)")
         }
         ToolbarItemGroup {
-            Button("Terminal", systemImage: "terminal") { active.openInTerminal() }
-                .disabled(active.developerFolder == nil)
-                .help("\(active.developerTools.openTitle(.terminal)) (⌥⇧⌘T)")
+            Button("Terminal", systemImage: "terminal") { window.toggleTerminal() }
+                .help("Show or hide a terminal in this folder")
             Button("Editor", systemImage: "chevron.left.forwardslash.chevron.right") { active.openInEditor() }
                 .disabled(active.developerFolder == nil)
                 .help("\(active.developerTools.openTitle(.editor)) (⌥⇧⌘E)")

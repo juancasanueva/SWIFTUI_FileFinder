@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BC1000000000000000000021 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = BC1000000000000000000022 /* Sparkle */; };
+		BC1000000000000000000031 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = BC1000000000000000000032 /* GhosttyTerminal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BC1000000000000000000021 /* Sparkle in Frameworks */,
+				BC1000000000000000000031 /* GhosttyTerminal in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +133,7 @@
 			name = FileFinder;
 			packageProductDependencies = (
 				BC1000000000000000000022 /* Sparkle */,
+				BC1000000000000000000032 /* GhosttyTerminal */,
 			);
 			productName = FileFinder;
 			productReference = BC30E771309A6D2900C59BB0 /* FileFinder.app */;
@@ -216,6 +219,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				BC1000000000000000000023 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				BC1000000000000000000033 /* XCRemoteSwiftPackageReference "libghostty-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BC100000000000000000000B /* Products */;
@@ -605,6 +609,14 @@
 				version = 2.9.6;
 			};
 		};
+		BC1000000000000000000033 /* XCRemoteSwiftPackageReference "libghostty-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Lakr233/libghostty-spm";
+			requirement = {
+				kind = exactVersion;
+				version = 2.2.2026103001;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -612,6 +624,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BC1000000000000000000023 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		BC1000000000000000000032 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BC1000000000000000000033 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
+			productName = GhosttyTerminal;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
