@@ -1,0 +1,418 @@
+//
+//  ReleasePipelineTests.swift
+//  FileFinderTests
+//
+//  Cheap contract tests over the release pipeline's files: scripts/release.sh,
+//  scripts/appcast.sh, scripts/ExportOptions.plist and
+//  .github/workflows/release.yml. They read the repository off disk, so a
+//  pipeline that drifts from the app it ships (product name, feed URL, minimum
+//  system version) fails here rather than after a tag has been pushed.
+//
+
+import Foundation
+import Testing
+
+/// Reads the repository off disk. The `#filePath` anchor is used because the
+/// test runner promises nothing about the working directory, and the test host
+/// is not sandboxed, so the checkout is readable.
+enum ReleasePipelineSources {
+    static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // FileFinderTests
+            .deletingLastPathComponent()   // repository root
+    }
+
+    static func url(_ relativePath: String) -> URL {
+        repositoryRoot.appendingPathComponent(relativePath)
+    }
+
+    static func text(_ relativePath: String) throws -> String {
+        try String(contentsOf: url(relativePath), encoding: .utf8)
+    }
+
+    static func plist(_ relativePath: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: url(relativePath))
+        let object = try PropertyListSerialization.propertyList(from: data, format: nil)
+        return try #require(object as? [String: Any])
+    }
+
+    static let releaseScript = "scripts/release.sh"
+    static let appcastScript = "scripts/appcast.sh"
+    static let exportOptions = "scripts/ExportOptions.plist"
+    static let workflow = ".github/workflows/release.yml"
+    static let infoPlist = "FileFinder/Resources/FileFinder-Info.plist"
+    static let projectFile = "FileFinder.xcodeproj/project.pbxproj"
+
+    /// Every capture of `pattern`'s first group in `text`.
+    static func captures(_ pattern: String, in text: String) throws -> [String] {
+        let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            Range(match.range(at: 1), in: text).map { String(text[$0]) }
+        }
+    }
+
+    /// Script lines with comments and blank lines removed, so a word that only
+    /// appears in prose never satisfies or fails an assertion about code.
+    static func codeLines(_ relativePath: String) throws -> [String] {
+        try text(relativePath)
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+}
+
+@Suite("Release pipeline files")
+struct ReleasePipelineFilesTests {
+    @Test(arguments: [ReleasePipelineSources.releaseScript, ReleasePipelineSources.appcastScript])
+    func scriptsAreExecutableAndFailOnTheFirstError(path: String) throws {
+        let url = ReleasePipelineSources.url(path)
+        #expect(FileManager.default.isExecutableFile(atPath: url.path))
+        let code = try ReleasePipelineSources.codeLines(path)
+        #expect(code.contains("set -euo pipefail"))
+    }
+
+    @Test(arguments: [ReleasePipelineSources.releaseScript, ReleasePipelineSources.appcastScript])
+    func scriptsCannotPublishOrTraceThemselves(path: String) throws {
+        let code = try ReleasePipelineSources.codeLines(path)
+        let invocations = code.filter { line in
+            line.range(of: #"(^|[\s;|&(])(git|gh)\s"#, options: .regularExpression) != nil
+        }
+        #expect(invocations.isEmpty, "publishing belongs to the workflow: \(invocations)")
+        #expect(!code.contains { $0.range(of: #"set\s+-[a-z]*x"#, options: .regularExpression) != nil })
+    }
+
+    @Test func exportOptionsDeclareManualDeveloperIDSigning() throws {
+        let options = try ReleasePipelineSources.plist(ReleasePipelineSources.exportOptions)
+        #expect(options["method"] as? String == "developer-id")
+        #expect(options["signingStyle"] as? String == "manual")
+        #expect(options["signingCertificate"] as? String == "Developer ID Application")
+        #expect(options["teamID"] as? String == "Z3S5JK8E38")
+    }
+}
+
+@Suite("Release script contract")
+struct ReleaseScriptContractTests {
+    @Test func buildsTheProductFromTheScheme() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.releaseScript)
+        #expect(script.contains(#"readonly SCHEME="FileFinder""#))
+        #expect(script.contains(#"readonly PRODUCT="FileFinder""#))
+        #expect(script.contains(#"readonly PROJECT="FileFinder.xcodeproj""#))
+        #expect(script.contains("ARCHS=arm64"))
+    }
+
+    @Test func verifiesTheBundleIdentifierTheAppShips() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.releaseScript)
+        #expect(script.contains(#""com.juancasanueva.FileFinder" "the delivered CFBundleIdentifier""#))
+    }
+
+    @Test func packagesTheAssetAsProductVersionZip() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.releaseScript)
+        #expect(script.contains(#"ZIP="$BUILD/$PRODUCT-$VERSION.zip""#))
+    }
+
+    /// The app ships as `FileFinder.app`: the app target is `FileFinder` and its product is named
+    /// after it, with no module name of its own.
+    @Test func theAppTargetShipsTheProductName() throws {
+        let project = try ReleasePipelineSources.text(ReleasePipelineSources.projectFile)
+        let names = try ReleasePipelineSources.captures(
+            #"INFOPLIST_FILE = "?FileFinder/Resources/FileFinder-Info.plist"?;[\s\S]*?PRODUCT_NAME = ([^;]+);"#,
+            in: project
+        )
+        #expect(names == [#""$(TARGET_NAME)""#, #""$(TARGET_NAME)""#])
+        #expect(project.contains("name = FileFinder;"))
+        #expect(project.contains("path = FileFinder.app;"))
+        #expect(!project.contains("PRODUCT_MODULE_NAME"))
+    }
+
+    /// Without the setting, or with a missing size, a release silently ships the
+    /// generic app icon.
+    @Test func theAppShipsACompleteIcon() throws {
+        let project = try ReleasePipelineSources.text(ReleasePipelineSources.projectFile)
+        #expect(project.components(separatedBy: "ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;").count - 1 == 2)
+
+        let folder = "FileFinder/Assets.xcassets/AppIcon.appiconset/"
+        let data = try Data(contentsOf: ReleasePipelineSources.url(folder + "Contents.json"))
+        let contents = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let images = try #require(contents["images"] as? [[String: String]])
+        #expect(Set(images.compactMap { $0["size"] }) == ["16x16", "32x32", "128x128", "256x256", "512x512"])
+        #expect(images.count == 10)
+        for image in images {
+            let name = try #require(image["filename"])
+            #expect(FileManager.default.fileExists(atPath: ReleasePipelineSources.url(folder + name).path), "\(name)")
+        }
+    }
+
+    /// Sparkle can't replace a sandboxed app's bundle without an XPC installer, and a file
+    /// browser needs the whole disk.
+    @Test func theAppTargetIsNotSandboxed() throws {
+        let project = try ReleasePipelineSources.text(ReleasePipelineSources.projectFile)
+        #expect(project.components(separatedBy: "ENABLE_APP_SANDBOX = NO;").count - 1 == 2)
+        #expect(!project.contains("ENABLE_APP_SANDBOX = YES;"))
+    }
+
+    @Test func refusesABundleThatCarriesTheAppSandbox() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.releaseScript)
+        #expect(script.contains("grep -q 'com.apple.security.app-sandbox'"))
+        #expect(script.contains(#"fail "the delivered bundle carries an app-sandbox entitlement""#))
+    }
+
+    @Test func stapleDeletesThePreNotarizationZipBeforeRepackaging() throws {
+        let code = try ReleasePipelineSources.codeLines(ReleasePipelineSources.releaseScript)
+        let staple = try #require(code.firstIndex(of: #"xcrun stapler staple "$APP""#))
+        let delete = try #require(code.firstIndex(of: #"rm -f "$ZIP""#))
+        #expect(staple < delete)
+    }
+}
+
+@Suite("Appcast script contract")
+struct AppcastScriptContractTests {
+    @Test func pinsTheSigningToolBySHA256() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.appcastScript)
+        #expect(script.contains(#"SPARKLE_VERSION="2.9.6""#))
+        let digests = try ReleasePipelineSources.captures(#"^SPARKLE_TARBALL_SHA256="([0-9a-f]{64})"$"#, in: script)
+        #expect(digests == ["52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192"])
+    }
+
+    @Test func readsThePrivateKeyOnStandardInputOnly() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.appcastScript)
+        #expect(script.contains(#"printf '%s' "$SPARKLE_PRIVATE_KEY" | "$TOOLS/bin/sign_update" --ed-key-file - "$ZIP_PATH""#))
+        let mentions = try ReleasePipelineSources.codeLines(ReleasePipelineSources.appcastScript)
+            .filter { $0.contains("SPARKLE_PRIVATE_KEY") }
+        #expect(mentions.count == 1)
+    }
+
+    @Test func minimumSystemVersionIsTheAppDeploymentTarget() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.appcastScript)
+        let emitted = try ReleasePipelineSources.captures(#"^MINIMUM_SYSTEM_VERSION="([0-9.]+)"$"#, in: script)
+        let project = try ReleasePipelineSources.text(ReleasePipelineSources.projectFile)
+        // The app target inherits the project's deployment target; every setting of it agrees.
+        let appTargets = try ReleasePipelineSources.captures(
+            #"MACOSX_DEPLOYMENT_TARGET = ([0-9.]+);"#,
+            in: project
+        )
+        #expect(!appTargets.isEmpty)
+        #expect(Set(appTargets).count == 1)
+        #expect(emitted == [try #require(appTargets.first)])
+    }
+
+    @Test func anEmptyChannelIsTitledWithTheProduct() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.appcastScript)
+        #expect(script.contains("<title>FileFinder</title>"))
+    }
+
+    @Test func aPrereleaseTagFetchesNothingAndSucceeds() throws {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("filefinder-appcast-\(UUID().uuidString).xml")
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [ReleasePipelineSources.url(ReleasePipelineSources.appcastScript).path, "fetch"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_REF_NAME": "v1.0.0-rc.1",
+            // Unreachable on purpose: a prerelease must stop before any download.
+            "FEED_URL": "http://127.0.0.1:9/appcast.xml",
+            "CURRENT_FEED_FILE": output.path,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+    }
+}
+
+@Suite("Release workflow contract")
+struct ReleaseWorkflowContractTests {
+    @Test func isTriggeredOnlyByAPushedVersionTag() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        #expect(workflow.contains("on:\n  push:\n    tags: ['v*']\n"))
+        for trigger in ["pull_request", "workflow_dispatch", "branches:", "schedule:", "workflow_run"] {
+            #expect(!workflow.contains(trigger), "unexpected trigger \(trigger)")
+        }
+    }
+
+    @Test func referencesExactlyTheSevenReleaseSecrets() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let secrets = Set(try ReleasePipelineSources.captures(#"secrets\.([A-Z0-9_]+)"#, in: workflow))
+        #expect(secrets == [
+            "BUILD_CERTIFICATE_BASE64", "P12_PASSWORD", "KEYCHAIN_PASSWORD",
+            "APPLE_API_KEY_P8", "APPLE_API_KEY_ID", "APPLE_API_ISSUER_ID",
+            "SPARKLE_PRIVATE_KEY",
+        ])
+    }
+
+    @Test func fetchesTheFeedTheAppReads() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let info = try ReleasePipelineSources.plist(ReleasePipelineSources.infoPlist)
+        let feed = try #require(info["SUFeedURL"] as? String)
+        let urls = try ReleasePipelineSources.captures(#"^\s*FEED_URL: (\S+)$"#, in: workflow)
+        #expect(urls == [feed])
+    }
+
+    @Test func publishesAndSignsTheAssetTheScriptPackages() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        #expect(workflow.contains(#"gh release create "$GITHUB_REF_NAME" "build/FileFinder-${VERSION}.zip""#))
+        #expect(workflow.contains("--verify-tag --generate-notes"))
+        #expect(workflow.contains("/releases/download/${{ github.ref_name }}/FileFinder-${{ env.VERSION }}.zip"))
+        #expect(workflow.contains("ZIP_PATH: build/FileFinder-${{ env.VERSION }}.zip"))
+        #expect(workflow.contains(#"codesign -dvvv --entitlements :- "build/export/FileFinder.app""#))
+    }
+
+    @Test func deletesTheEphemeralKeychainUnconditionally() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let keychains = Set(try ReleasePipelineSources.captures(#"(\$RUNNER_TEMP/[\w-]+\.keychain-db)"#, in: workflow))
+        #expect(keychains == ["$RUNNER_TEMP/filefinder-release.keychain-db"])
+        #expect(workflow.contains("- name: Delete the ephemeral keychain and the API key\n        if: always()"))
+    }
+
+    /// Every stable run fetches the live feed, prepends its item and redeploys
+    /// the whole site, so two runs in flight at once would each drop the
+    /// other's item. One constant group serializes them across tags.
+    @Test func feedRunsAreSerializedAcrossTags() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        #expect(workflow.contains("concurrency:\n  group: release-feed\n  cancel-in-progress: false"))
+        let groups = try ReleasePipelineSources.captures(#"^\s*group: (.+)$"#, in: workflow)
+        #expect(groups == ["release-feed"])
+    }
+
+    @Test func everyActionIsPinnedToACommitSHA() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let uses = try ReleasePipelineSources.captures(#"uses: (\S+)"#, in: workflow)
+        #expect(!uses.isEmpty)
+        for action in uses {
+            #expect(action.range(of: #"@[0-9a-f]{40}$"#, options: .regularExpression) != nil, "\(action)")
+        }
+    }
+}
+
+/// Runs the distinct-commit gate's own shell, as written in the workflow,
+/// against a stand-in `curl` that answers with a chosen Pages status.
+@Suite("Release workflow distinct-commit gate")
+struct DistinctCommitGateTests {
+    static let stepName = "- name: Refuse a second feed deployment from this commit"
+
+    /// The `run: |` block of the gate step, dedented.
+    static func gateScript() throws -> String {
+        let lines = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+            .components(separatedBy: "\n")
+        let step = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == stepName })
+        let run = try #require(lines[step...].firstIndex { $0.trimmingCharacters(in: .whitespaces) == "run: |" })
+        let runIndent = lines[run].prefix { $0 == " " }.count
+        var body: [String] = []
+        for line in lines[(run + 1)...] {
+            let indent = line.prefix { $0 == " " }.count
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty && indent <= runIndent { break }
+            body.append(line)
+        }
+        let indent = try #require(body.first).prefix { $0 == " " }.count
+        return body.map { String($0.dropFirst(min(indent, $0.prefix { $0 == " " }.count))) }
+            .joined(separator: "\n")
+    }
+
+    static func exitStatus(forPagesStatus status: String) throws -> Int32 {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("filefinder-gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let curl = directory.appendingPathComponent("curl")
+        try Data(#"#!/bin/bash\#nprintf '{"status":"%s"}' "$FAKE_STATUS"\#n"#.utf8).write(to: curl)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: curl.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", try gateScript()]
+        process.environment = [
+            "PATH": "\(directory.path):/usr/bin:/bin",
+            "GITHUB_REPOSITORY": "juancasanueva/SWIFTUI_FileFinder",
+            "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
+            "RELEASE_TOKEN": "test-token",
+            "FAKE_STATUS": status,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    @Test func aCommitPagesHasNeverDeployedPasses() throws {
+        #expect(try Self.exitStatus(forPagesStatus: "") == 0)
+    }
+
+    @Test func aCommitThatAlreadyDeployedIsRefused() throws {
+        #expect(try Self.exitStatus(forPagesStatus: "succeed") != 0)
+    }
+
+    /// RELEASING.md's recovery is "delete the release and re-run": a deployment
+    /// that never went live must not lock its commit out of the feed.
+    @Test(arguments: ["deployment_failed", "deployment_content_failed", "deployment_cancelled",
+                      "deployment_attempt_error", "deployment_lost"])
+    func aFailedDeploymentCanBeRetried(status: String) throws {
+        #expect(try Self.exitStatus(forPagesStatus: status) == 0)
+    }
+
+    /// A deployment still in flight, or a status this gate does not know, is not
+    /// proof the feed is free.
+    @Test(arguments: ["deployment_in_progress", "syncing_files", "something_new"])
+    func anUnfinishedOrUnknownStatusIsRefused(status: String) throws {
+        #expect(try Self.exitStatus(forPagesStatus: status) != 0)
+    }
+}
+
+/// The smoke phase launches the delivered app and fails the release if it does
+/// not stay up: an optimized Release build can crash at launch where no
+/// Debug-built unit test can see it.
+@Suite("Release smoke launch")
+struct ReleaseSmokeLaunchTests {
+    @Test func theScriptLaunchesTheVerifiedApp() throws {
+        let script = try ReleasePipelineSources.text(ReleasePipelineSources.releaseScript)
+        #expect(script.contains("phase_smoke() {"))
+        #expect(script.contains("smoke) phase_smoke ;;"))
+        #expect(script.contains(#"SMOKE_BINARY:-$VERIFIED_APP/Contents/MacOS/$PRODUCT"#))
+        #expect(script.contains("  smoke      "))
+    }
+
+    @Test func theWorkflowSmokesAfterVerifyAndBeforePublishing() throws {
+        let workflow = try ReleasePipelineSources.text(ReleasePipelineSources.workflow)
+        let verify = try #require(workflow.range(of: "run: scripts/release.sh verify"))
+        let smoke = try #require(workflow.range(of: "run: scripts/release.sh smoke"))
+        let publish = try #require(workflow.range(of: #"gh release create "$GITHUB_REF_NAME""#))
+        #expect(verify.upperBound < smoke.lowerBound)
+        #expect(smoke.upperBound < publish.lowerBound)
+    }
+
+    /// A stand-in binary: one that exits at once must fail the phase, one that
+    /// keeps running must pass it.
+    @Test(arguments: [("exit 3", false), ("sleep 30", true)])
+    func thePhaseFailsOnlyWhenTheAppExits(body: String, passes: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("filefinder-smoke-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let binary = directory.appendingPathComponent("fake-app")
+        try "#!/bin/bash\n\(body)\n".write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [ReleasePipelineSources.url(ReleasePipelineSources.releaseScript).path, "smoke"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "VERSION": "0.0.0",
+            "RELEASE_BUILD_DIR": directory.path,
+            "SMOKE_BINARY": binary.path,
+            "SMOKE_SECONDS": "2",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect((process.terminationStatus == 0) == passes)
+    }
+}

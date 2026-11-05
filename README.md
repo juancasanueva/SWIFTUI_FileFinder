@@ -2,6 +2,16 @@
 
 A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the whole disk like Finder and adds dual panes, workspaces, tidying, developer tools and a safe cleanup page.
 
+## Install
+
+```sh
+brew install --cask juancasanueva/tap/filefinder
+```
+
+Apple silicon and macOS 27.2 or later only. Or download `FileFinder-<version>.zip` from [Releases](https://github.com/juancasanueva/SWIFTUI_FileFinder/releases).
+
+The app updates itself through Sparkle: choose **FileFinder ▸ Check for Updates…**, or turn on automatic checks in Settings ▸ General.
+
 ## Features
 
 - **Browser**: a sidebar with Favorites, Locations and external drives; a path bar that accepts typed paths (Tab completes); list and card views with Small, Medium and Large icons; folder sizes and item counts; a status bar showing the item count, selection and free space.
@@ -76,6 +86,10 @@ xcodebuild test -scheme FileFinder -destination 'platform=macOS' -only-testing:F
 
 Some tests move small files to your real Trash.
 
+## Releasing
+
+A pushed `v*` tag builds, signs, notarizes and publishes a release and its update feed. See [RELEASING.md](RELEASING.md).
+
 ## Project layout
 
 ```
@@ -90,8 +104,12 @@ FileFinder/            App sources
     Developer/         Git status, terminals, editors, path bar commands
     Views/             SwiftUI views
     Workspaces/        Workspace storage
+  Updates/             Check for Updates (Sparkle)
+  Resources/           Update keys merged into Info.plist
 FileFinderTests/       Unit tests
 FileFinderUITests/     UI tests
+scripts/               Release build and appcast scripts
+.github/workflows/     The release pipeline
 ```
 
 ## License
