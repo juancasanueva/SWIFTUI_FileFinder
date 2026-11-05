@@ -16,7 +16,8 @@ struct TerminalPanel: View {
             exists: { FileManager.default.fileExists(atPath: $0.path) })
         return files.isEmpty
             ? TerminalController()
-            : TerminalController(configSource: .generated(ghosttyConfig(including: files)))
+            : TerminalController(configSource: .generated(ghosttyConfig(
+                from: files, read: { try? String(contentsOf: $0, encoding: .utf8) })))
     }()
 
     /// The config files Ghostty itself loads on macOS, in its order (later ones win): the XDG
@@ -35,10 +36,10 @@ struct TerminalPanel: View {
             .filter(exists)
     }
 
-    /// A config that includes each file by absolute path, so their own relative includes and
-    /// themes still resolve from where they live.
-    nonisolated static func ghosttyConfig(including files: [URL]) -> String {
-        files.map { "config-file = \"\($0.path)\"\n" }.joined()
+    /// The files' contents one after another, as Ghostty reads them: a later setting wins.
+    /// Inlined because the package loads only the file it is given, never `config-file` includes.
+    nonisolated static func ghosttyConfig(from files: [URL], read: (URL) -> String?) -> String {
+        files.compactMap(read).map { $0.hasSuffix("\n") ? $0 : $0 + "\n" }.joined()
     }
 
     var body: some View {

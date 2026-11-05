@@ -101,11 +101,27 @@ struct TerminalPanelTests {
         #expect(TerminalPanel.ghosttyConfigFiles(environment: [:], home: home, exists: { _ in false }).isEmpty)
     }
 
-    @Test("The config includes each file by absolute path, quoted")
-    func configIncludes() {
-        let files = [URL(filePath: "/Users/me/Library/Application Support/com.mitchellh.ghostty/config")]
-        #expect(TerminalPanel.ghosttyConfig(including: files)
-            == "config-file = \"/Users/me/Library/Application Support/com.mitchellh.ghostty/config\"\n")
+    @Test("The config is the files' contents in order, so later files win; unreadable ones are skipped")
+    func configContents() {
+        let a = URL(filePath: "/a/config"), b = URL(filePath: "/b/config"), c = URL(filePath: "/c/config")
+        let contents = [a: "font-size = 12", b: "font-size = 14\n"]
+        #expect(TerminalPanel.ghosttyConfig(from: [a, c, b], read: { contents[$0] })
+            == "font-size = 12\nfont-size = 14\n")
+    }
+
+    @Test("An empty XDG_CONFIG_HOME means ~/.config, and Application Support still follows")
+    func emptyXDG() {
+        let home = URL(filePath: "/Users/me", directoryHint: .isDirectory)
+        let all: Set<String> = [
+            "/Users/me/.config/ghostty/config",
+            "/Users/me/Library/Application Support/com.mitchellh.ghostty/config",
+        ]
+        let files = TerminalPanel.ghosttyConfigFiles(
+            environment: ["XDG_CONFIG_HOME": ""], home: home, exists: { all.contains($0.path) })
+        #expect(files.map(\.path) == [
+            "/Users/me/.config/ghostty/config",
+            "/Users/me/Library/Application Support/com.mitchellh.ghostty/config",
+        ])
     }
 
     @Test("A window's panel opens in the active pane's folder")
