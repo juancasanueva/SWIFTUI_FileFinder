@@ -61,6 +61,11 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
 - [x] T29 S6 — L32 A4: a path into the Trash spelled through a link or in other letter case counts as the Trash (compared by folder identity) — inline — (this commit) (RED→GREEN; a first version looped forever at the root, fixed before commit)
 - [x] T30 S6 — L36/L41 ancestor limitation: a folder whose ancestor was moved out of the Trash stops being emptied promptly (top-level entry checked before every deletion; the whole chain on entering a folder and every 64 entries) — inline — (this commit) (RED→GREEN: the moved Mid's Deep was emptied; now ≥ 136 of 200 survive)
 - [x] T31 S6 — L32 A3: no Sendable warnings for the trasher and copier (nonisolated stored closures) — inline — (this commit) (build: 11 FileActions warnings → 0; full suite 338 ×2)
+- [x] T32 S6 — L48 R4-001/R3-004: whether an undo step needs the Trash is decided off the main actor, once per operation (undo and redo reuse it) — inline — 7606398 (no deterministic RED: `@concurrent` guarantees it; existing Trash-undo tests pin the behavior, 343)
+- [x] T33 S6 — L48 R4-002/R3-005: the ancestor check climbs folder by folder through ".." (no PATH_MAX limit) and reports an ancestor it can't read as that failure — inline — c9fc31d (RED: 400-level leaf fully deleted, unreadable ancestor unreported; GREEN 152 and 38 kept; checks every 64 steps: climbing on every folder entered took the 600-level test from 1.6 s to 11.8 s)
+- [x] T34 S6 — L48 R3-003: a top-level folder renamed inside the Trash mid-empty keeps being emptied (still in the Trash) instead of stopping as "was moved"; one deleted elsewhere is reported by the parent check as "couldn’t be removed" (L42), never as moved — inline — c9fc31d (RED: movedWhileEmptying("Top"); GREEN)
+- [x] T35 S6 — L48 R3-001: trashSpelledDifferently checks the other-letter-case spelling only on a case-insensitive volume — inline — 7606398 (test only)
+- [x] T36 S6 — L48 R3-002: ancestorMovedOut asserts the exact kept count — inline — c9fc31d (138 kept: the check at step 64)
 
 ## Log
 
@@ -147,3 +152,5 @@ Route evidence: T2–T5 are four independent units with disjoint files (one scan
   - R3-001 trashSpelledDifferently assumes a case-insensitive volume.
   - R3-002 ancestorMovedOut asserts a lower bound (≥ 136), not the exact count.
   - R3-003 A top-level folder deleted externally or renamed inside the Trash mid-empty now stops as "was moved" (conservative; L45 A1).
+- L49 2026-11-05 User: "fix the remaining Smart Clean review notes". Branch `fix/smart-clean-final-notes` from `main` (2784634). The L48 notes R4-001/R3-004, R4-002/R3-005, R3-003, R3-001, R3-002, planned as T32–T36, inline (one area, sequential).
+- L50 T32–T36 done: c9fc31d (walk: ancestor climb every 64 steps, renamed top-level kept emptying), 7606398 (Trash needs decided off the main actor; T35 test). Full suite 343 passed. Risk: item 1 (Empty Trash deletion walk) and item 4 (an extra await before undo registration inside the serialized queue) → independent verifier against 2784634 (still running when the user asked to merge: "yes, merge into main and push"; merged and pushed 2026-11-05).
