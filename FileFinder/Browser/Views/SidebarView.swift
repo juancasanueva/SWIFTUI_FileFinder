@@ -56,6 +56,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) { settingsButton }
         .navigationSplitViewColumnWidth(min: 170, ideal: 200)
         .task(id: volumeChanges) { await refresh() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in
@@ -64,6 +65,20 @@ struct SidebarView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in
             volumeChanges += 1
         }
+    }
+
+    /// Pinned below the list so it stays put while the sections scroll.
+    private var settingsButton: some View {
+        HStack {
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Settings (⌘,)")
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     /// Builds the sections off the main actor: it touches the disk (cloud folders, volume names).
