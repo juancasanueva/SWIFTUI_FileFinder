@@ -59,6 +59,14 @@ nonisolated struct Shortcut: Hashable, Sendable {
         }
     }
 
+    /// Whether the key, with these modifiers, is also needed for typing: a key without ⌘, ⌃ or
+    /// ⌥ (Shift alone still types) other than F1–F12 and Tab. Settings refuses such a shortcut,
+    /// since a menu would take the key from every text field.
+    var typesText: Bool {
+        guard modifiers.isDisjoint(with: [.command, .control, .option]) else { return false }
+        return !(key == "tab" || (key.hasPrefix("f") && key.count > 1 && Int(key.dropFirst()) != nil))
+    }
+
     /// As written in the file: modifiers in a fixed order, then the key.
     var text: String {
         var words: [String] = []

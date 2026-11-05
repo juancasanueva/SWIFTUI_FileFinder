@@ -47,7 +47,7 @@ These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (
 }
 ```
 
-A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with `+`: a character, `plus`, `tab`, `delete`, `return`, `escape`, `space`, `up`, `down`, `left`, `right` or `f1`–`f12`. An empty value means no shortcut. An action missing from the file, or with a value that can't be read, keeps its default. A file that isn't valid JSON is set aside as `keybindings.json.damaged-<time>` and the defaults are written again. ⌃1–⌃9 and the keys inside dialogs can't be changed.
+A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with `+`: a character, `plus`, `tab`, `delete`, `return`, `escape`, `space`, `up`, `down`, `left`, `right` or `f1`–`f12`. An empty value means no shortcut. An action missing from the file, or with a value that can't be read, keeps its default. At launch, a file that isn't valid JSON is set aside as `keybindings.json.damaged-<time>` and the defaults are written again; saved with a mistake while the app runs, it is left alone and the shortcuts in use stay until it reads again. In Settings, a key needs ⌘, ⌃ or ⌥ (F1–F12 and Tab can stand alone), so a shortcut never takes a key needed for typing. ⌃1–⌃9 and the keys inside dialogs can't be changed.
 
 ## Requirements
 

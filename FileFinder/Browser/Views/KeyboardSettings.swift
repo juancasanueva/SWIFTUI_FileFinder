@@ -82,6 +82,7 @@ struct KeyboardSettings: View {
 
     private func record(_ shortcut: Shortcut, for action: KeyAction) {
         do {
+            if shortcut.typesText { throw KeyBindingError.typesText }
             try keys.set(shortcut, for: action)
             message = nil
         } catch {

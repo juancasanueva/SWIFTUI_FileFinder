@@ -3,10 +3,12 @@ import Observation
 
 nonisolated enum KeyBindingError: LocalizedError, Equatable {
     case alreadyUsed(by: KeyAction)
+    case typesText
 
     var errorDescription: String? {
         switch self {
         case .alreadyUsed(let action): "Already used by “\(action.title)”."
+        case .typesText: "Add ⌘, ⌃ or ⌥: that key alone is needed for typing."
         }
     }
 }
@@ -77,17 +79,21 @@ final class KeyBindingStore {
     // MARK: File
 
     /// Reads the file: missing → created with the defaults; not a JSON object → set aside and
-    /// written again; any action it doesn't set readably keeps its default.
-    private func load() {
+    /// written again at launch, but left alone when it changes while the app runs (someone is
+    /// editing it); any action it doesn't set readably keeps its default.
+    private func load(whileRunning: Bool = false) {
         guard let data = try? Data(contentsOf: fileURL) else {
             shortcuts = Self.defaults
             return save()
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // Mid-edit: keep the shortcuts in use until the file reads again.
+            if whileRunning { return }
             // Keep the damaged file for recovery instead of overwriting it.
-            let stamp = Int(Date.now.timeIntervalSince1970)
-            let backup = fileURL.deletingLastPathComponent().appending(path: "\(fileURL.lastPathComponent).damaged-\(stamp)")
-            try? FileManager.default.moveItem(at: fileURL, to: backup)
+            guard setAsideDamagedFile() else {
+                shortcuts = Self.defaults   // in use, but the file isn't touched
+                return
+            }
             shortcuts = Self.defaults
             return save()
         }
@@ -101,6 +107,19 @@ final class KeyBindingStore {
             }
         }
         if read != shortcuts { shortcuts = read }
+    }
+
+    /// Moves the file to `keybindings.json.damaged-<stamp>` (then `-2`, `-3`… when taken);
+    /// whether it moved. If it can't, it stays as it is and isn't overwritten.
+    private func setAsideDamagedFile() -> Bool {
+        let stamp = Int(Date.now.timeIntervalSince1970)
+        let base = "\(fileURL.lastPathComponent).damaged-\(stamp)"
+        for attempt in 1...100 {
+            let backup = fileURL.deletingLastPathComponent().appending(path: attempt == 1 ? base : "\(base)-\(attempt)")
+            guard !FileManager.default.fileExists(atPath: backup.path) else { continue }
+            return (try? FileManager.default.moveItem(at: fileURL, to: backup)) != nil
+        }
+        return false
     }
 
     private func save() {
@@ -119,7 +138,7 @@ final class KeyBindingStore {
     /// it (only the folder sees that, and the new file needs watching again).
     private func watch() {
         folderWatcher = Self.source(fileURL.deletingLastPathComponent(), events: [.write]) { [weak self] _ in
-            self?.load()
+            self?.load(whileRunning: true)
             self?.watchFile()
         }
         watchFile()
@@ -128,7 +147,7 @@ final class KeyBindingStore {
     private func watchFile() {
         fileWatcher?.cancel()
         fileWatcher = Self.source(fileURL, events: [.write, .extend, .delete, .rename]) { [weak self] events in
-            self?.load()
+            self?.load(whileRunning: true)
             if !events.isDisjoint(with: [.delete, .rename]) { self?.watchFile() }
         }
     }

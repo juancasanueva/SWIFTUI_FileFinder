@@ -180,6 +180,37 @@ struct KeyBindingStoreTests {
         #expect(store.shortcut(for: .newFolder) == nil)
     }
 
+    @Test("A file saved with a mistake while the app runs is left alone; the shortcuts in use stay")
+    func brokenEditLeftAlone() async throws {
+        let store = KeyBindingStore(fileURL: file, watchesFile: true)
+        try write(#"{ "newFolder": "ctrl+alt+n" }"#)
+        let deadline = Date.now.addingTimeInterval(5)
+        while store.shortcut(for: .newFolder)?.text != "ctrl+alt+n", Date.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        try write(#"{ "newFolder": "ctrl+alt+n", "#)
+        try await Task.sleep(for: .milliseconds(500))
+
+        #expect(try String(contentsOf: file, encoding: .utf8) == #"{ "newFolder": "ctrl+alt+n", "#)
+        #expect(store.shortcut(for: .newFolder)?.text == "ctrl+alt+n")
+        let names = try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+        #expect(!names.contains { $0.contains("damaged") })
+    }
+
+    @Test("Damaged files set aside in the same second are all kept")
+    func damagedKeptApart() throws {
+        try write("not json")
+        _ = KeyBindingStore(fileURL: file, watchesFile: false)
+        try write("[1, 2]")
+        _ = KeyBindingStore(fileURL: file, watchesFile: false)
+
+        let folder = file.deletingLastPathComponent()
+        let damaged = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.contains("damaged") }
+        let contents = try Set(damaged.map { try String(contentsOf: folder.appending(path: $0), encoding: .utf8) })
+        #expect(contents == ["not json", "[1, 2]"])
+    }
+
     @Test("Edits made to the file while the app runs are picked up")
     func externalEdit() async throws {
         let store = KeyBindingStore(fileURL: file, watchesFile: true)
@@ -209,6 +240,20 @@ struct ShortcutRecordingTests {
         #expect(Shortcut(keyCode: 126, characters: "\u{F700}", flags: [.command, .numericPad, .function])?.text == "cmd+up")
         #expect(Shortcut(keyCode: 24, characters: "+", flags: [.command])?.text == "cmd+plus")
         #expect(Shortcut(keyCode: 0, characters: "a", flags: [.control, .option])?.text == "ctrl+alt+a")
+    }
+
+    @Test("Settings only records keys that can't be typed as text: a letter needs ⌘, ⌃ or ⌥; F-keys and Tab don't")
+    func typesText() {
+        #expect(Shortcut("n")?.typesText == true)
+        #expect(Shortcut("shift+n")?.typesText == true)
+        #expect(Shortcut("delete")?.typesText == true)
+        #expect(Shortcut("space")?.typesText == true)
+        #expect(Shortcut("cmd+n")?.typesText == false)
+        #expect(Shortcut("ctrl+n")?.typesText == false)
+        #expect(Shortcut("alt+shift+n")?.typesText == false)
+        #expect(Shortcut("f5")?.typesText == false)
+        #expect(Shortcut("tab")?.typesText == false)
+        #expect(KeyBindingError.typesText.localizedDescription == "Add ⌘, ⌃ or ⌥: that key alone is needed for typing.")
     }
 
     @Test("Escape alone, and keys that type nothing usable, give no shortcut")
