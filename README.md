@@ -1,4 +1,4 @@
-# <img src="FileFinder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" alt="FileFinder icon" width="56" align="center"> FileFinder
+# <img src="FileFinder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" alt="FileFinder icon" width="112" align="center"> FileFinder
 
 A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the whole disk like Finder and adds dual panes, workspaces, tidying, developer tools and a safe cleanup page.
 
