@@ -13,7 +13,7 @@ Objective: Check for Updates through Sparkle, a notarized tag-driven release pip
 ## Tasks
 
 - [x] T1 S2 project format move — inline; settings identical for 3 targets × 2 configs; 367/367 tests
-- [ ] T2 S3 Check for Updates — inline
+- [x] T2 S3 Check for Updates — inline; RED (no AppUpdating) then 383/383 tests; Sparkle 2.9.6 linked, keys in the built Info.plist
 - [ ] T3 S4 release pipeline, RELEASING.md, pipeline tests — inline
 - [ ] T4 S5 cask in the tap repo (separate repo; needs the user's go-ahead to push) — inline
 - [ ] T5 S4 one-time setup (secrets, Pages) and an rc rehearsal — needs the user
@@ -25,3 +25,4 @@ Forecast: ~1,500 authored lines (project file ~600 generated-like, pipeline ~600
 - **L1** (2026-11-05) "I want to implement the Check for updates and brew like we did here /Users/juancasanueva/programming/swiftUI/youtubedownload"
 - **L2** Mapped the reference with one explorer. Repo is public; `filefinder`, `file-finder` and `file_finder` casks are free (404). GitHub's `xcode-27` image has Xcode 27.2 (public preview), so the 27.2 deployment target stays.
 - **L3** T1: generated `project.pbxproj` from the old file's settings (same target and product IDs). `-showBuildSettings` for all three targets in Debug and Release is identical to before; 367 tests pass.
+- **L4** T2: ported `Updates/` (AppUpdating, AutomaticUpdateChecks, SparkleUpdateChecker, UpdateCheckPresentation, UpdatePolicy, UpdatesSection) and the tests; added `AppUpdater.shared` (nil in the test host), "Check for Updates…" after About in the app menu, and the Updates section in Settings ▸ General. Project regenerated with Sparkle and the partial `FileFinder/Resources/FileFinder-Info.plist` (excluded from resources). Not checked by eye yet: the menu item and Settings section in the running app.

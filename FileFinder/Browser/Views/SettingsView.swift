@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Settings (⌘,): General (the terminal and editor folders open in) and Keyboard (the menu
-/// shortcuts, kept in keybindings.json).
+/// Settings (⌘,): General (the terminal and editor folders open in, and updates) and Keyboard
+/// (the menu shortcuts, kept in keybindings.json).
 struct SettingsView: View {
     let tools: DeveloperTools
+    let updater: (any AppUpdating)?
 
     var body: some View {
         TabView {
             Tab("General", systemImage: "gearshape") {
-                GeneralSettings(tools: tools, keys: .shared)
+                GeneralSettings(tools: tools, keys: .shared, updater: updater)
             }
             Tab("Keyboard", systemImage: "keyboard") {
                 KeyboardSettings(keys: .shared)
@@ -20,6 +21,7 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     let tools: DeveloperTools
     let keys: KeyBindingStore
+    let updater: (any AppUpdating)?
 
     var body: some View {
         Form {
@@ -32,6 +34,7 @@ private struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let updater { UpdatesSection(updater: updater) }
         }
         .formStyle(.grouped)
         .frame(width: 460)
