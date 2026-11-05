@@ -282,9 +282,11 @@ phase_verify() {
 
 	# Nothing from scripts/ or .github/ may travel inside the bundle.
 	# `FileFinder/` is a synchronized root group, so this is the gate that
-	# catches a release file dropped into it by mistake.
+	# catches a release file dropped into it by mistake. The terminal panel's
+	# package bundle is skipped: its shell-integration scripts (.sh) belong there.
 	local stowaways
 	stowaways="$(find "$VERIFIED_APP/Contents" \
+		-path '*/Resources/GhosttyKit_GhosttyTerminal.bundle' -prune -o \
 		\( -name '*.yml' -o -name '*.yaml' -o -name '*.sh' -o -name 'ExportOptions*.plist' \) \
 		-print)"
 	if [ -n "$stowaways" ]; then
