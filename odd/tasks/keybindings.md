@@ -20,7 +20,7 @@ Branch: `feat/keybindings` from `main` (4a16335). Delivery: ask-on-risk; work-un
 ## Tasks
 
 - [x] T1 S2,S3 — KeyBindings model: action catalog with titles and defaults, shortcut text parse/format, store (create, merge, damaged file set aside, save, set/clear/reset, external edits reloaded) — inline — (T1 commit) (tests written first; RED not run: they couldn't compile without the types; GREEN 14/14)
-- [ ] T2 S4 — menu commands take their shortcuts from the store — inline — pending
+- [x] T2 S4 — menu commands take their shortcuts from the store — inline — (T2 commit) (no unit RED: SwiftUI menus can't be driven in tests; 31 shortcuts swapped one-for-one for their KeyAction, Tidy Downloads and Smart Clean added; full suite 357)
 - [ ] T3 S1,S5 — Settings: General and Keyboard tabs, shortcut recorder, clear, reset, Restore Defaults, open file; README — inline — pending
 
 Route evidence: T2 and T3 depend on T1; one area, sequential; no Writer trigger.
@@ -29,3 +29,4 @@ Route evidence: T2 and T3 depend on T1; one area, sequential; no Writer trigger.
 
 - L1 2026-11-05 User: "I want to have the keybindings in a file in .config folder, and be able to change then in the settings". Format asked; answer: "JSON (Recommended)".
 - L2 T1: Shortcut (parse/format/display/KeyboardShortcut), KeyAction (33 actions, menus, titles, defaults = the menus' shortcuts at 4a16335), KeyBindingStore (XDG/~/.config path, defaults merged, file never rewritten on read, damaged JSON set aside, whole file written on each change, folder + file watchers for edits in place or by replacement). Saving writes every action; unknown keys in the file are dropped then.
+- L3 T2: BrowserCommands reads KeyBindingStore.shared (observed, so menus follow changes); ⌃1–⌃9 stay fixed. A full run took 20–25 s instead of ~5 s while the Smart Clean verifier ran its timing probes (load average ~12); no single test was slow.

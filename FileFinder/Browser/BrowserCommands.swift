@@ -6,6 +6,8 @@ struct BrowserCommands: Commands {
     @FocusedValue(\.browser) private var browser
     @FocusedValue(\.browserWindow) private var window
     @Environment(\.openWindow) private var openWindow
+    /// keybindings.json; the menus follow its changes.
+    private let keys = KeyBindingStore.shared
 
     private var hasSelection: Bool { !(browser?.selection.isEmpty ?? true) }
     private var isTyping: Bool { browser?.isTyping ?? false }
@@ -13,42 +15,44 @@ struct BrowserCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Folder") { Task { await browser?.newFolder() } }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .keyboardShortcut(shortcut(.newFolder))
                 .disabled(browser == nil || isTyping || browser?.isShowingWorkspace == true)
             Button("New Workspace…") { window?.requestNewWorkspace() }
-                .keyboardShortcut("n", modifiers: [.command, .option])
+                .keyboardShortcut(shortcut(.newWorkspace))
                 .disabled(window == nil || isTyping)
             Button("Open") { browser?.openSelection() }
-                .keyboardShortcut("o")
+                .keyboardShortcut(shortcut(.open))
                 .disabled(!hasSelection || isTyping)
             Divider()
             // Listed before the View menu, so it wins ⌥⌘T over Show/Hide Toolbar.
             Button("Tidy This Folder…") { Task { await browser?.prepareTidy() } }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .keyboardShortcut(shortcut(.tidyFolder))
                 .disabled(!(browser?.canTidy ?? false) || isTyping)
             Button("Tidy Downloads…") { Task { await browser?.tidyDownloads() } }
+                .keyboardShortcut(shortcut(.tidyDownloads))
                 .disabled(browser == nil || isTyping)
             Button("Smart Clean…") { openWindow(id: SmartCleanWindow.id) }
+                .keyboardShortcut(shortcut(.smartClean))
             Divider()
             Button(DeveloperTools.shared.openTitle(.terminal)) { browser?.openInTerminal() }
-                .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                .keyboardShortcut(shortcut(.openInTerminal))
                 .disabled(browser?.developerFolder == nil || isTyping)
             Button(DeveloperTools.shared.openTitle(.editor)) { browser?.openInEditor() }
-                .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+                .keyboardShortcut(shortcut(.openInEditor))
                 .disabled(browser?.developerFolder == nil || isTyping)
             Divider()
             Button("Copy to Other Pane") { Task { await window?.copyToOtherPane() } }
-                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
+                .keyboardShortcut(shortcut(.copyToOtherPane))
                 .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)
             Button("Move to Other Pane") { Task { await window?.moveToOtherPane() } }
-                .keyboardShortcut(Self.functionKey(NSF6FunctionKey), modifiers: [])
+                .keyboardShortcut(shortcut(.moveToOtherPane))
                 .disabled(!(window?.isSplit ?? false) || !hasSelection || isTyping)
             Divider()
             // In a workspace ⌘⌫ only removes entries; nothing is ever trashed from there.
             Button(browser?.isShowingWorkspace == true ? "Remove from Workspace" : "Move to Trash") {
                 Task { await browser?.trashSelection() }
             }
-                .keyboardShortcut(.delete, modifiers: .command)
+                .keyboardShortcut(shortcut(.moveToTrash))
                 .disabled(!hasSelection || isTyping)
         }
 
@@ -56,34 +60,34 @@ struct BrowserCommands: Commands {
         // forward to the field editor whenever one is active.
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { textOr(#selector(NSText.cut(_:))) { browser?.cutSelection() } }
-                .keyboardShortcut("x")
+                .keyboardShortcut(shortcut(.cut))
             Button("Copy") { textOr(#selector(NSText.copy(_:))) { browser?.copySelection() } }
-                .keyboardShortcut("c")
+                .keyboardShortcut(shortcut(.copy))
             Button("Paste") { textOr(#selector(NSText.paste(_:))) { Task { await browser?.paste() } } }
-                .keyboardShortcut("v")
+                .keyboardShortcut(shortcut(.paste))
             Button("Move Item Here") { Task { await browser?.paste(forceMove: true) } }
-                .keyboardShortcut("v", modifiers: [.command, .option])
+                .keyboardShortcut(shortcut(.moveItemHere))
                 .disabled(isTyping)
             Button("Select All") { textOr(#selector(NSText.selectAll(_:))) { browser?.selectAll() } }
-                .keyboardShortcut("a")
+                .keyboardShortcut(shortcut(.selectAll))
         }
 
         CommandGroup(before: .toolbar) {
             Button(window?.isSplit == true ? "Close Split View" : "Split View") { window?.toggleSplit() }
-                .keyboardShortcut("d")
+                .keyboardShortcut(shortcut(.splitView))
                 .disabled(window == nil || isTyping)
             // A bare Tab: disabled while typing so text fields keep Tab (path completion).
             Button("Switch Pane") { window?.switchPane() }
-                .keyboardShortcut(.tab, modifiers: [])
+                .keyboardShortcut(shortcut(.switchPane))
                 .disabled(!(window?.isSplit ?? false) || isTyping)
             Button("Swap Panes") { window?.swapPanes() }
-                .keyboardShortcut("u")
+                .keyboardShortcut(shortcut(.swapPanes))
                 .disabled(!(window?.isSplit ?? false) || isTyping)
             Divider()
             Button("as List") { browser?.viewMode = .list }
-                .keyboardShortcut("1")
+                .keyboardShortcut(shortcut(.viewAsList))
             Button("as Cards") { browser?.viewMode = .cards }
-                .keyboardShortcut("2")
+                .keyboardShortcut(shortcut(.viewAsCards))
             Picker("Group By", selection: Binding(
                 get: { browser?.groupBy ?? .none },
                 set: { browser?.groupBy = $0 }
@@ -93,41 +97,41 @@ struct BrowserCommands: Commands {
             .disabled(browser == nil)
             Divider()
             Button("Bigger Icons") { if let next = browser?.iconSize.bigger { browser?.iconSize = next } }
-                .keyboardShortcut("+")
+                .keyboardShortcut(shortcut(.biggerIcons))
                 .disabled(browser?.iconSize.bigger == nil)
             Button("Smaller Icons") { if let next = browser?.iconSize.smaller { browser?.iconSize = next } }
-                .keyboardShortcut("-")
+                .keyboardShortcut(shortcut(.smallerIcons))
                 .disabled(browser?.iconSize.smaller == nil)
             Divider()
             Button(browser?.showPreview == true ? "Hide Preview" : "Show Preview") {
                 browser?.showPreview.toggle()
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcut(.togglePreview))
             Button(browser?.showHidden == true ? "Hide Hidden Files" : "Show Hidden Files") {
                 browser?.showHidden.toggle()
             }
-            .keyboardShortcut(".", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcut(.toggleHiddenFiles))
             Divider()
         }
 
         CommandMenu("Go") {
             Button("Back") { browser?.goBack() }
-                .keyboardShortcut("[")
+                .keyboardShortcut(shortcut(.goBack))
                 .disabled(!(browser?.canGoBack ?? false))
             Button("Forward") { browser?.goForward() }
-                .keyboardShortcut("]")
+                .keyboardShortcut(shortcut(.goForward))
                 .disabled(!(browser?.canGoForward ?? false))
             Button("Enclosing Folder") { browser?.goUp() }
-                .keyboardShortcut(.upArrow)
+                .keyboardShortcut(shortcut(.enclosingFolder))
                 .disabled(!(browser?.canGoUp ?? false) || isTyping)
             Divider()
-            Button("Home") { go(to: "") }.keyboardShortcut("h", modifiers: [.command, .shift])
-            Button("Desktop") { go(to: "Desktop") }.keyboardShortcut("d", modifiers: [.command, .shift])
-            Button("Documents") { go(to: "Documents") }.keyboardShortcut("o", modifiers: [.command, .shift])
-            Button("Downloads") { go(to: "Downloads") }.keyboardShortcut("l", modifiers: [.command, .option])
+            Button("Home") { go(to: "") }.keyboardShortcut(shortcut(.goHome))
+            Button("Desktop") { go(to: "Desktop") }.keyboardShortcut(shortcut(.goDesktop))
+            Button("Documents") { go(to: "Documents") }.keyboardShortcut(shortcut(.goDocuments))
+            Button("Downloads") { go(to: "Downloads") }.keyboardShortcut(shortcut(.goDownloads))
             Divider()
             Button("Go to Folder…") { browser?.isEditingPath = true }
-                .keyboardShortcut("l")
+                .keyboardShortcut(shortcut(.goToFolder))
             Divider()
             ForEach(Array((window?.workspaces.workspaces ?? []).prefix(9).enumerated()), id: \.element.id) { index, workspace in
                 Button(workspace.name) { Task { await window?.openWorkspace(number: index + 1) } }
@@ -136,8 +140,8 @@ struct BrowserCommands: Commands {
         }
     }
 
-    private static func functionKey(_ code: Int) -> KeyEquivalent {
-        KeyEquivalent(Character(Unicode.Scalar(UInt32(code)) ?? " "))
+    private func shortcut(_ action: KeyAction) -> KeyboardShortcut? {
+        keys.shortcut(for: action)?.keyboardShortcut
     }
 
     private func go(to homeRelativePath: String) {
