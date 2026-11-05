@@ -1,0 +1,27 @@
+# Updates and Homebrew
+
+Objective: Check for Updates through Sparkle, a notarized tag-driven release pipeline with an appcast feed, and a Homebrew cask, as in youtubedownload. Branch `feat/updates-and-brew`; delivery `ask-on-risk`; tests: `xcodebuild test -scheme FileFinder -destination 'platform=macOS' -only-testing:FileFinderTests`.
+
+## Specs
+
+- **S1** "I want to implement the Check for updates and brew like we did here /Users/juancasanueva/programming/swiftUI/youtubedownload". The reference is that repo's feature (odd/tasks/updates-and-brew.md, RELEASING.md, `.github/workflows/release.yml`, `scripts/`, `Updates/`).
+- **S2** Project format: the project moves from `FileFinder.xcodeproj/project.xcproj` to a classic `project.pbxproj` (the reference's reason: the xcproj format reads package references without linking them). Every target's build settings stay as they were (checked with `-showBuildSettings` before and after).
+- **S3** Check for Updates, as in the reference: Sparkle 2.9.6 by SPM behind an `AppUpdating` protocol, one Sparkle adapter, "Check for Updates…" in the app menu and in Settings, an automatic-checks toggle (off by default) and "Last checked" text; tests never start Sparkle. Info.plist: `SUFeedURL` `https://juancasanueva.github.io/SWIFTUI_FileFinder/appcast.xml`, `SUScheduledCheckInterval` 86400, the shared `SUPublicEDKey`.
+- **S4** Release pipeline, as in the reference: a `v*` tag builds, signs, notarizes and publishes `FileFinder-<version>.zip` to GitHub Releases and the appcast to GitHub Pages, with the same seven secrets. Assumption: it runs on the `xcode-27` runner with Xcode 27.2, since the app targets macOS 27.2 and the reference's Xcode 26.6 can't build it.
+- **S5** Homebrew: a `filefinder` cask in `juancasanueva/homebrew-tap` (token checked free on formulae.brew.sh), with its bump and CI entries; README install and RELEASING.md documented.
+
+## Tasks
+
+- [x] T1 S2 project format move — inline; settings identical for 3 targets × 2 configs; 367/367 tests
+- [ ] T2 S3 Check for Updates — inline
+- [ ] T3 S4 release pipeline, RELEASING.md, pipeline tests — inline
+- [ ] T4 S5 cask in the tap repo (separate repo; needs the user's go-ahead to push) — inline
+- [ ] T5 S4 one-time setup (secrets, Pages) and an rc rehearsal — needs the user
+
+Forecast: ~1,500 authored lines (project file ~600 generated-like, pipeline ~600, Swift ~300). Risk: items 5 (CI, release, dependency) and 2 (signing secrets): independent verifier after T3.
+
+## Log
+
+- **L1** (2026-11-05) "I want to implement the Check for updates and brew like we did here /Users/juancasanueva/programming/swiftUI/youtubedownload"
+- **L2** Mapped the reference with one explorer. Repo is public; `filefinder`, `file-finder` and `file_finder` casks are free (404). GitHub's `xcode-27` image has Xcode 27.2 (public preview), so the 27.2 deployment target stays.
+- **L3** T1: generated `project.pbxproj` from the old file's settings (same target and product IDs). `-showBuildSettings` for all three targets in Debug and Release is identical to before; 367 tests pass.
