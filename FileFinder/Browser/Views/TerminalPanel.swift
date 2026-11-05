@@ -57,7 +57,10 @@ struct TerminalPanel: View {
         .onChange(of: panel.cdRequest) { _, request in
             guard let request else { return }
             if let command = Self.cdCommand(to: request.folder, from: terminal.workingDirectory) {
+                // Ctrl-E, Ctrl-U clear a half-typed line first, so it is not run with the cd.
                 // Pasted, then Enter as a key: a `\r` inside a paste would not run the line.
+                _ = terminal.sendKey(.e, modifiers: .ctrl)
+                _ = terminal.sendKey(.u, modifiers: .ctrl)
                 _ = terminal.paste(text: command)
                 _ = terminal.sendKey(.enter)
             }

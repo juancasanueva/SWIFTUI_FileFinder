@@ -150,16 +150,11 @@ struct TerminalPanelTests {
         #expect(TerminalPanel.cdCommand(to: URL(filePath: "/Users/me/api/"), from: "/Users/me/api") == nil)
     }
 
-    @Test("The same folder written differently (trailing slash, \"..\") keeps the shell", arguments: [
+    @Test("No cd is typed when the shell is already in the folder, however it is written", arguments: [
         "/tmp/FileFinderTerminal/", "/tmp/FileFinderTerminal/sub/..", "/tmp/./FileFinderTerminal",
     ])
-    func openSameFolderSpelledDifferently(path: String) throws {
-        let panel = TerminalPanelModel()
-        panel.open(in: URL(filePath: "/tmp/FileFinderTerminal", directoryHint: .notDirectory))
-        let first = try #require(panel.session)
-
-        panel.open(in: URL(filePath: path))
-        #expect(panel.session == first)
+    func noCDForSameFolder(path: String) {
+        #expect(TerminalPanel.cdCommand(to: URL(filePath: path), from: "/tmp/FileFinderTerminal") == nil)
     }
 
     @Test("Every pane's Open in Terminal reaches the window's panel, the second pane's too")
