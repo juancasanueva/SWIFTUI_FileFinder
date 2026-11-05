@@ -318,6 +318,16 @@ final class BrowserModel {
 
     func openSelection() { open(selection) }
 
+    /// Navigates into the selection when it is exactly one folder. Returns whether it did.
+    @discardableResult
+    func enterSelectedFolder() -> Bool {
+        guard selection.count == 1,
+              let folder = items.first(where: { $0.url == selection.first && $0.isNavigable })
+        else { return false }
+        navigate(to: folder.url)
+        return true
+    }
+
     /// Opens the folder an item really lives in, with the item selected.
     func showInEnclosingFolder(_ item: FileItem) {
         navigate(to: item.url.deletingLastPathComponent())

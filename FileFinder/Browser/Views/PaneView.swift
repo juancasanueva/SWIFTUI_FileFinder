@@ -33,6 +33,7 @@ struct PaneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onKeyPress(.space, action: handleSpace)
                 .onKeyPress(.return, action: handleReturn)
+                .onKeyPress(keys: [.delete], action: handleBackspace)
             if !model.missingEntries.isEmpty {
                 MissingEntriesBar(model: model)
             }
@@ -85,9 +86,17 @@ struct PaneView: View {
         return .handled
     }
 
+    /// Return enters a selected folder; on a single file it starts renaming, like Finder.
     private func handleReturn() -> KeyPress.Result {
         guard !model.isTyping, model.selection.count == 1 else { return .ignored }
-        model.beginRename()
+        if !model.enterSelectedFolder() { model.beginRename() }
+        return .handled
+    }
+
+    /// Backspace (with no modifiers: ⌘⌫ is Move to Trash) goes up to the enclosing folder.
+    private func handleBackspace(_ press: KeyPress) -> KeyPress.Result {
+        guard !model.isTyping, press.modifiers.isEmpty, model.canGoUp else { return .ignored }
+        model.goUp()
         return .handled
     }
 }

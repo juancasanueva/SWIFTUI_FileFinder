@@ -69,6 +69,24 @@ struct BrowserModelTests {
         #expect(model.selection == [child.canonical])
     }
 
+    @Test("Return enters the one selected folder, but not a file or several items")
+    func enterSelectedFolder() async throws {
+        let folder = try dir.folder("folder")
+        let file = try dir.file("file.txt")
+        let model = makeModel()
+        await model.reload()
+
+        model.selection = [file.canonical]
+        #expect(!model.enterSelectedFolder())
+        model.selection = [folder.canonical, file.canonical]
+        #expect(!model.enterSelectedFolder())
+        #expect(model.currentFolder == dir.url.canonical)
+
+        model.selection = [folder.canonical]
+        #expect(model.enterSelectedFolder())
+        #expect(model.currentFolder == folder.canonical)
+    }
+
     // MARK: - Listing
 
     @Test("Reload lists folders first, and sorting by size reorders")
