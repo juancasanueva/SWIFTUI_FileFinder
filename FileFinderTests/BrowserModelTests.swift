@@ -342,6 +342,38 @@ struct BrowserModelTests {
         #expect(model.renamingURL == url)
     }
 
+    @Test("Cancelling a rename keeps the name and selection and gives the file list focus back")
+    func cancelRenameRefocusesList() async throws {
+        let file = try dir.file("keep.txt")
+        let model = makeModel()
+        await model.reload()
+        model.selection = [file.canonical]
+        model.beginRename()
+        let requests = model.focusRequest
+
+        model.cancelRename()
+
+        #expect(model.renamingURL == nil)
+        #expect(!model.isTyping)
+        #expect(model.selection == [file.canonical])
+        #expect(model.items.map(\.name) == ["keep.txt"])
+        #expect(model.focusRequest == requests + 1)
+    }
+
+    @Test("Cancelling the path bar closes it and gives the file list focus back")
+    func cancelPathEditingRefocusesList() {
+        let model = makeModel()
+        model.isEditingPath = true
+        let folder = model.currentFolder
+        let requests = model.focusRequest
+
+        model.cancelPathEditing()
+
+        #expect(!model.isEditingPath)
+        #expect(model.currentFolder == folder)
+        #expect(model.focusRequest == requests + 1)
+    }
+
     @Test("Trashing the selection removes it from the listing")
     func trashSelection() async throws {
         let file = try dir.file("old.log")

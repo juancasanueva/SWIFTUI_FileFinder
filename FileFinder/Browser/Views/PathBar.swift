@@ -79,10 +79,7 @@ struct PathBar: View {
                 text = PathInput.complete(text, relativeTo: model.currentFolder)
                 return .handled
             }
-            .onKeyPress(.escape) {
-                model.isEditingPath = false
-                return .handled
-            }
+            .onEscapeKey(isActive: isFocused) { model.cancelPathEditing() }
             .onSubmit {
                 // A folder path, or a command such as `code .` (see `PathBarCommand`).
                 if !model.submitPath(text) { NSSound.beep() }

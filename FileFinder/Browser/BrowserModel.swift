@@ -695,7 +695,17 @@ final class BrowserModel {
         await reload()
     }
 
-    func cancelRename() { renamingURL = nil }
+    /// Escape in the rename field: keeps the name and hands the keyboard back to the file list.
+    func cancelRename() {
+        renamingURL = nil
+        focusRequest += 1
+    }
+
+    /// Escape in the path bar: closes it and hands the keyboard back to the file list.
+    func cancelPathEditing() {
+        isEditingPath = false
+        focusRequest += 1
+    }
 
     // MARK: File operations
 

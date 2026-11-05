@@ -19,12 +19,10 @@ struct RenameField: View {
         TextField("Name", text: $text)
             .textFieldStyle(.roundedBorder)
             .focused($isFocused)
-            .onAppear { isFocused = true }
+            // Deferred: when F2 starts the rename, the focused file list would otherwise keep focus.
+            .onAppear { DispatchQueue.main.async { isFocused = true } }
             .onSubmit { onCommit(text) }
-            .onKeyPress(.escape) {
-                onCancel()
-                return .handled
-            }
+            .onEscapeKey(isActive: isFocused) { onCancel() }
             .onChange(of: isFocused) { _, focused in
                 if !focused { onCommit(text) }
             }
