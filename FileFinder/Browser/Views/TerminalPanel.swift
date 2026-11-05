@@ -10,11 +10,36 @@ struct TerminalPanel: View {
     /// One libghostty app for every panel. It reads the user's Ghostty config, so fonts, theme
     /// and keybindings match their Ghostty.
     private static let controller: TerminalController = {
-        let config = URL.homeDirectory.appending(path: ".config/ghostty/config").path
-        return FileManager.default.fileExists(atPath: config)
-            ? TerminalController(configSource: .file(config))
-            : TerminalController()
+        let files = ghosttyConfigFiles(
+            environment: ProcessInfo.processInfo.environment,
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            exists: { FileManager.default.fileExists(atPath: $0.path) })
+        return files.isEmpty
+            ? TerminalController()
+            : TerminalController(configSource: .generated(ghosttyConfig(including: files)))
     }()
+
+    /// The config files Ghostty itself loads on macOS, in its order (later ones win): the XDG
+    /// folder (`$XDG_CONFIG_HOME`, else `~/.config`), then Application Support.
+    nonisolated static func ghosttyConfigFiles(
+        environment: [String: String], home: URL, exists: (URL) -> Bool
+    ) -> [URL] {
+        let xdg = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(filePath: $0) }
+            ?? home.appending(path: ".config")
+        let folders = [
+            xdg.appending(path: "ghostty"),
+            home.appending(path: "Library/Application Support/com.mitchellh.ghostty"),
+        ]
+        return folders
+            .flatMap { [$0.appending(path: "config"), $0.appending(path: "config.ghostty")] }
+            .filter(exists)
+    }
+
+    /// A config that includes each file by absolute path, so their own relative includes and
+    /// themes still resolve from where they live.
+    nonisolated static func ghosttyConfig(including files: [URL]) -> String {
+        files.map { "config-file = \"\($0.path)\"\n" }.joined()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,7 +62,7 @@ struct TerminalPanel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            Button("Close Terminal", systemImage: "xmark") { panel.toggle(in: session.folder) }
+            Button("Close Terminal", systemImage: "xmark") { panel.close() }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .help("Close the terminal; its shell ends")
