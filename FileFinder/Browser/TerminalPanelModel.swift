@@ -11,15 +11,26 @@ final class TerminalPanelModel {
 
     private(set) var session: Session?
 
+    /// Asks the open shell to change to a folder; a new id each time, so asking again works.
+    struct CDRequest: Equatable {
+        let id = UUID()
+        let folder: URL
+    }
+
+    private(set) var cdRequest: CDRequest?
+
     func toggle(in folder: URL) {
         session = session == nil ? Session(folder: folder) : nil
     }
 
-    /// Open in Terminal (menu, right-click, `terminal` in the path bar): a shell already in
-    /// `folder` stays; otherwise a new one starts there. Folders are compared in canonical form,
-    /// so a trailing slash or a "." / ".." never replaces a running shell.
+    /// Open in Terminal (menu, right-click, `terminal` in the path bar): starts a shell in
+    /// `folder`, or, when one is open, asks it to `cd` there, so nothing running in it is lost.
     func open(in folder: URL) {
-        if session?.folder.canonical != folder.canonical { session = Session(folder: folder) }
+        if session == nil {
+            session = Session(folder: folder)
+        } else {
+            cdRequest = CDRequest(folder: folder)
+        }
     }
 
     /// The panel's close button. Safe when the shell already ended.

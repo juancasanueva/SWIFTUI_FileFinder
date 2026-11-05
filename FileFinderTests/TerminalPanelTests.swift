@@ -124,18 +124,30 @@ struct TerminalPanelTests {
         ])
     }
 
-    @Test("Open in Terminal keeps a shell already in that folder, and starts a new one elsewhere")
+    @Test("Open in Terminal starts a shell when none is open, and otherwise asks the open one to cd")
     func openIn() throws {
         let panel = TerminalPanelModel()
         panel.open(in: folder)
         let first = try #require(panel.session)
-        panel.open(in: folder)
-        #expect(panel.session == first)
+        #expect(panel.cdRequest == nil)
 
         let other = URL(filePath: "/tmp/Other", directoryHint: .isDirectory)
         panel.open(in: other)
-        #expect(panel.session?.folder == other)
-        #expect(panel.session != first)
+        #expect(panel.session == first)
+        let request = try #require(panel.cdRequest)
+        #expect(request.folder == other)
+
+        panel.open(in: other)
+        #expect(panel.cdRequest != request)  // asked again: the shell may have moved since
+    }
+
+    @Test("The cd typed into the shell quotes the folder, and is skipped when the shell is already there")
+    func cdCommand() {
+        #expect(TerminalPanel.cdCommand(to: URL(filePath: "/Users/me/My Files"), from: "/Users/me")
+            == "cd '/Users/me/My Files'")
+        #expect(TerminalPanel.cdCommand(to: URL(filePath: "/Users/me/it's"), from: nil)
+            == "cd '/Users/me/it'\\''s'")
+        #expect(TerminalPanel.cdCommand(to: URL(filePath: "/Users/me/api/"), from: "/Users/me/api") == nil)
     }
 
     @Test("The same folder written differently (trailing slash, \"..\") keeps the shell", arguments: [
@@ -162,7 +174,8 @@ struct TerminalPanelTests {
 
         window.toggleSplit()
         window.panes[1].openInTerminal(dir.url.canonical)
-        #expect(window.terminal.session?.folder == dir.url.canonical)
+        #expect(window.terminal.session?.folder == sub.canonical)
+        #expect(window.terminal.cdRequest?.folder == dir.url.canonical)
     }
 
     @Test("Both panes of a window restored in split view open the window's panel")
@@ -177,7 +190,7 @@ struct TerminalPanelTests {
         window.panes[1].openInTerminal()
         #expect(window.terminal.session?.folder == window.panes[1].developerFolder)
         window.panes[0].openInTerminal()
-        #expect(window.terminal.session?.folder == window.panes[0].developerFolder)
+        #expect(window.terminal.cdRequest?.folder == window.panes[0].developerFolder)
     }
 
     @Test("A window's panel opens in the active pane's folder")
