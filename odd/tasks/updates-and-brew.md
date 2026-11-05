@@ -16,7 +16,7 @@ Objective: Check for Updates through Sparkle, a notarized tag-driven release pip
 - [x] T1 S2 project format move — inline; settings identical for 3 targets × 2 configs; 367/367 tests
 - [x] T2 S3 Check for Updates — inline; RED (no AppUpdating) then 383/383 tests; Sparkle 2.9.6 linked, keys in the built Info.plist
 - [x] T3 S4 release pipeline, RELEASING.md, pipeline tests — inline; 30 pipeline tests pass; local archive/export/package/smoke pass
-- [ ] T4 S5 cask in the tap repo (separate repo; needs the user's go-ahead to push) — inline
+- [x] T4 S5 cask in the tap repo — inline; tap 24eeadb, tap CI 42040951264 green
 - [x] T6 S6 floor 15.0 and the macos-15 floor job — inline; RED (no smoke-floor job) then full suite green; Release build at 15.0 succeeds
 - [x] T5 S4 one-time setup (secrets, Pages) and an rc rehearsal — rc.2 run 42039551337 green
 
@@ -38,3 +38,5 @@ Forecast: ~1,500 authored lines (project file ~600 generated-like, pipeline ~600
 - **L12** (2026-11-05, user): "can we lower it even further? to macOS15?" A Release build with `MACOSX_DEPLOYMENT_TARGET=15.0` succeeds with no availability errors and no `#available` in the code. User: "yes, go ahead".
 - **L13** T6: deployment target 15.0 in all four settings, `MINIMUM_SYSTEM_VERSION` 15.0, README and RELEASING.md updated. `release.yml` split into `build` (xcode-27, contents/pages read; uploads the notarized zip), `smoke-floor` (macos-15, no secrets; verify + smoke) and `publish` (needs both; Pages environment). Actions pinned: upload-artifact v7.0.2 cf430e03, download-artifact v8.0.2 9000827c. New test `theDeliveredAppRunsOnTheFloorBeforePublishing` ties the floor job's `macos-N` to `MINIMUM_SYSTEM_VERSION`. actionlint clean; full unit suite green. The cask (T4) uses `depends_on macos: ">= :sequoia"`.
 - **L14** Rehearsal `v1.0.0-rc.2` (run 42039551337): build, smoke-floor and publish all succeeded; the smoke passed on xcode-27 and on macos-15 (20 s each); prerelease `FileFinder-1.0.0-rc.2.zip` published, no feed entry. Next: stable `v1.0.0`, then T4.
+- **L15** Stable `v1.0.0` (run 42040197694): build, smoke-floor and publish succeeded; the live feed lists 1.0.0 with `minimumSystemVersion` 15.0 and an EdDSA signature.
+- **L16** (2026-11-05, user): "yes, push it". T4: `Casks/filefinder.rb` 1.0.0 (sha256 3334351e…, equal to GitHub's asset digest), `depends_on arch: :arm64`, `depends_on macos: :sequoia`, `auto_updates true`, zap of `~/.config/filefinder` and the bundle-id paths; `bump.yml` and `ci.yml` entries and a README line. `brew style` and actionlint clean; pushed to the tap's main as 24eeadb; tap CI 42040951264 passed the online strict audit, install and zap uninstall. Feature complete.
