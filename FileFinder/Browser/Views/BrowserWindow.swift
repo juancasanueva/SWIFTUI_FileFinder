@@ -42,6 +42,7 @@ private struct BrowserWindowContent: View {
                         onActivate: { window.activate(pane) })
                 }
                 TransferBar(actions: window.actions)
+                FunctionKeyBar(window: window, keys: .shared)
             }
         }
         .inspector(isPresented: $active.showPreview) {

@@ -101,6 +101,99 @@ struct BrowserWindowModelTests {
         #expect(window.panes[1].selection == [target.appending(path: "a.txt").canonical])
     }
 
+    // MARK: - Function key bar
+
+    @Test("F7 makes a new folder in the active pane and starts renaming it")
+    func f7MakesFolder() async throws {
+        let window = makeWindow()
+        await window.active.reload()
+
+        await window.perform(.makeFolder)
+
+        let created = dir.url.appending(path: "untitled folder").canonical
+        #expect(FileManager.default.fileExists(atPath: created.path))
+        #expect(window.active.selection == [created])
+        #expect(window.active.renamingURL == created)
+    }
+
+    @Test("F8 moves the active pane's selection to the Trash")
+    func f8Trashes() async throws {
+        let file = try dir.file("old.log")
+        let window = makeWindow()
+        await window.active.reload()
+        window.active.selection = [file.canonical]
+
+        await window.perform(.delete)
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(window.active.items.isEmpty)
+    }
+
+    @Test("Bar commands are available only when their action can run")
+    func barAvailability() async throws {
+        let a = try dir.file("a.txt")
+        let b = try dir.file("b.txt")
+        let window = makeWindow()
+        await window.active.reload()
+
+        // Nothing selected, one pane: only Mkdir.
+        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.makeFolder])
+
+        window.active.selection = [a.canonical]
+        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.rename, .makeFolder, .delete])
+
+        window.active.selection = [a.canonical, b.canonical]
+        #expect(!window.canPerform(.rename))
+
+        window.toggleSplit()
+        window.active.selection = [a.canonical]
+        #expect(FunctionKeyCommand.allCases.allSatisfy(window.canPerform))
+
+        window.active.beginRename()
+        #expect(!FunctionKeyCommand.allCases.contains(where: window.canPerform))
+    }
+
+    @Test("The bar shows F5 Copy and F6 Move only with two panes")
+    func copyAndMoveShownOnlyWhenSplit() {
+        let window = makeWindow()
+        #expect(window.barCommands == [.rename, .makeFolder, .delete])
+
+        window.toggleSplit()
+        #expect(window.barCommands == [.rename, .copy, .move, .makeFolder, .delete])
+
+        window.toggleSplit()
+        #expect(window.barCommands == [.rename, .makeFolder, .delete])
+    }
+
+    @Test("A disabled bar command does nothing")
+    func disabledCommandDoesNothing() async throws {
+        let file = try dir.file("keep.txt")
+        let window = makeWindow()
+        await window.active.reload()
+
+        await window.perform(.delete)   // nothing selected
+        window.active.selection = [file.canonical]
+        window.active.beginRename()
+        await window.perform(.delete)   // renaming
+
+        #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("The bar shows each command's key from the keymap; F7 and F8 are fixed")
+    func barKeyLabels() throws {
+        let defaults: [KeyAction: Shortcut] = [
+            .rename: try #require(Shortcut("f2")), .copyToOtherPane: try #require(Shortcut("f5")),
+            .moveToOtherPane: try #require(Shortcut("f6")),
+        ]
+        #expect(FunctionKeyCommand.allCases.map { $0.keyLabel(defaults.get) }
+            == ["F2", "F5", "F6", "F7", "F8"])
+        #expect(FunctionKeyCommand.allCases.map(\.title) == ["Rename", "Copy", "Move", "Mkdir", "Delete"])
+
+        let rebound: [KeyAction: Shortcut] = [.rename: try #require(Shortcut("cmd+r"))]
+        #expect(FunctionKeyCommand.rename.keyLabel(rebound.get) == "⌘R")
+        #expect(FunctionKeyCommand.copy.keyLabel(rebound.get) == nil)
+    }
+
     @Test("F6 moves the selection into the other pane's folder")
     func moveToOtherPane() async throws {
         let source = try dir.file("left/a.txt")
@@ -239,4 +332,8 @@ struct BrowserWindowModelTests {
     func badStateIsIgnored() {
         #expect((try? WindowState(encoded: "not json")) == nil)
     }
+}
+
+private extension Dictionary where Key == KeyAction, Value == Shortcut {
+    func get(_ action: KeyAction) -> Shortcut? { self[action] }
 }
