@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings (⌘,): General (the terminal and editor folders open in, and updates) and Keyboard
+/// Settings (⌘,): General (hidden files, the terminal and editor folders open in, and updates) and Keyboard
 /// (the menu shortcuts, kept in keybindings.json).
 struct SettingsView: View {
     let tools: DeveloperTools
@@ -22,9 +22,19 @@ private struct GeneralSettings: View {
     let tools: DeveloperTools
     let keys: KeyBindingStore
     let updater: (any AppUpdating)?
+    /// The same setting as View ▸ Show Hidden Files; open panes follow it right away.
+    @AppStorage(BrowserModel.showHiddenKey) private var showHidden = false
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Show hidden files", isOn: $showHidden)
+            } footer: {
+                Text(hiddenFooter)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Section {
                 AppPicker(title: "Terminal", role: .terminal, tools: tools)
                 AppPicker(title: "Editor", role: .editor, tools: tools)
@@ -39,6 +49,11 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var hiddenFooter: String {
+        let shortcut = keys.shortcut(for: .toggleHiddenFiles).map { " \($0.display) also turns them on or off." } ?? ""
+        return "Files and folders whose names start with a dot, such as .git or .zshrc, in every window.\(shortcut)"
     }
 
     private var footer: String {

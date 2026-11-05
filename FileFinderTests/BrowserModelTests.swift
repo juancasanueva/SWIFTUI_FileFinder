@@ -414,6 +414,36 @@ struct BrowserModelTests {
         #expect(reloaded.viewMode == .cards)
         #expect(reloaded.iconSize == .large)
     }
+
+    @Test("Turning hidden files on in Settings shows them in every open pane")
+    func hiddenFilesSettingReachesOpenPanes() async throws {
+        try dir.file("visible.txt")
+        try dir.file(".secret")
+        let left = makeModel()
+        let right = makeModel()
+        await left.reload()
+        #expect(left.items.map(\.name) == ["visible.txt"])
+
+        defaults.set(true, forKey: BrowserModel.showHiddenKey)
+
+        try await waitFor { left.showHidden && right.showHidden }
+        await left.reload()
+        #expect(left.items.map(\.name).sorted() == [".secret", "visible.txt"])
+
+        defaults.set(false, forKey: BrowserModel.showHiddenKey)
+        try await waitFor { !left.showHidden && !right.showHidden }
+    }
+
+    @Test("Show Hidden Files in one pane turns it on in the other pane too")
+    func hiddenFilesToggleReachesOtherPane() async throws {
+        let left = makeModel()
+        let right = makeModel()
+
+        left.showHidden.toggle()
+
+        #expect(defaults.bool(forKey: BrowserModel.showHiddenKey))
+        try await waitFor { right.showHidden }
+    }
 }
 
 /// Lets a test hold a fake folder measurement open and observe when it starts.

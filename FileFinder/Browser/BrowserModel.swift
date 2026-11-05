@@ -58,8 +58,11 @@ struct LoadFailure: Equatable {
 /// State and behavior of one browser window.
 @Observable
 final class BrowserModel {
+    /// Shared by every pane and by Settings ▸ General: one setting, like Finder's.
+    static let showHiddenKey = "showHiddenFiles"
+
     private enum Key {
-        static let showHidden = "showHiddenFiles"
+        static let showHidden = BrowserModel.showHiddenKey
         static let viewMode = "viewMode"
         static let iconSize = "iconSize"
         static let showPreview = "showPreview"
@@ -129,6 +132,8 @@ final class BrowserModel {
     // MARK: Preferences
 
     @ObservationIgnored private let defaults: UserDefaults
+    /// Follows `showHiddenKey` when Settings or another pane changes it.
+    @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
     var showHidden: Bool { didSet { defaults.set(showHidden, forKey: Key.showHidden) } }
     var viewMode: BrowserViewMode { didSet { defaults.set(viewMode.rawValue, forKey: Key.viewMode) } }
     var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
@@ -174,6 +179,20 @@ final class BrowserModel {
         showPreview = defaults.bool(forKey: Key.showPreview)
         groupBy = GroupBy(rawValue: defaults.string(forKey: Key.groupBy) ?? "") ?? .none
         actions.onBackgroundError = { [weak self] message in self?.alertMessage = message }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.followHiddenFilesSetting() }
+        }
+    }
+
+    isolated deinit {
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+    }
+
+    private func followHiddenFilesSetting() {
+        let stored = defaults.bool(forKey: Key.showHidden)
+        if showHidden != stored { showHidden = stored }
     }
 
     /// Downloads when it exists, otherwise the home folder.

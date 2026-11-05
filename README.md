@@ -15,7 +15,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 ## Features
 
 - **Browser**: a sidebar with Favorites, Locations and external drives; a path bar that accepts typed paths (Tab completes); list and card views with Small, Medium and Large icons; a Permissions column in list view (`drwxr-xr-x`, as `ls -l` shows it); folder sizes and item counts; a status bar showing the item count, selection and free space.
-- **Files**: Quick Look, rename in place, New Folder, hidden files toggle, live refresh, copy/cut/paste that works with Finder, and Undo for moves, copies, renames and Move to Trash.
+- **Files**: Quick Look, rename in place, New Folder, show hidden files (⇧⌘. or Settings ▸ General, shared by every window), live refresh, copy/cut/paste that works with Finder, and Undo for moves, copies, renames and Move to Trash.
 - **Preview**: cards show real previews (a document's first page, a photo, a video frame). A preview pane shows the selected file, or a two-level look into the selected folder.
 - **Dual pane**: two panes side by side, copy or move the selection to the other pane, drag to move (hold ⌥ to copy), a transfer queue with progress and Cancel, and a choice of keep both, replace or skip on name conflicts. Both panes are restored after relaunch.
 - **Workspaces**: named pages that gather folders and files from anywhere, including cloud and external drives. Nothing is copied or moved.
