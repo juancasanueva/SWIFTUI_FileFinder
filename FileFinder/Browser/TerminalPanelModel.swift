@@ -15,6 +15,9 @@ final class TerminalPanelModel {
         session = session == nil ? Session(folder: folder) : nil
     }
 
+    /// The panel's close button. Safe when the shell already ended.
+    func close() { session = nil }
+
     /// Called when a shell ends (`exit`, Ctrl-D). A shell already replaced by a newer one is ignored.
     func shellExited(_ id: Session.ID) {
         if session?.id == id { session = nil }
