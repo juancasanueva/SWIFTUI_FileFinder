@@ -36,13 +36,10 @@ private struct BrowserWindowContent: View {
             SidebarView(model: active, window: window)
         } detail: {
             VStack(spacing: 0) {
-                HSplitView {
-                    ForEach(window.panes, id: \.objectID) { pane in
-                        PaneView(
-                            model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
-                            onActivate: { window.activate(pane) })
-                        .frame(minWidth: 280)
-                    }
+                PaneSplit(panes: window.panes) { pane in
+                    PaneView(
+                        model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
+                        onActivate: { window.activate(pane) })
                 }
                 TransferBar(actions: window.actions)
             }
