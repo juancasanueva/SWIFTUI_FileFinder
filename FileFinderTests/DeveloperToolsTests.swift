@@ -180,6 +180,15 @@ struct PathBarCommandTests {
         #expect(command.folder == dir.url.canonical)
     }
 
+    @Test("With no terminal panel to open, `terminal` is not accepted and the path stays open")
+    func terminalWithoutPanel() {
+        let pane = makePane([])
+        pane.isEditingPath = true
+
+        #expect(!pane.submitPath("terminal"))
+        #expect(pane.isEditingPath)
+    }
+
     @Test("A command can take a folder path; anything else isn't a command")
     func parsePaths() throws {
         let sub = try dir.folder("api")

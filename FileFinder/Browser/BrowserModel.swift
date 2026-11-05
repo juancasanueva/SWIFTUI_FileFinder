@@ -784,6 +784,8 @@ final class BrowserModel {
         }
         guard let base = developerFolder,
               let command = PathBarCommand.parse(text, relativeTo: base) else { return false }
+        // A pane outside a window has no terminal panel: `terminal` is then not a command.
+        if command.target == .terminalPanel, onOpenTerminal == nil { return false }
         isEditingPath = false
         do {
             switch command.target {

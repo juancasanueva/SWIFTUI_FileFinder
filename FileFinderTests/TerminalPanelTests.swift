@@ -153,6 +153,21 @@ struct TerminalPanelTests {
         #expect(window.terminal.session?.folder == dir.url.canonical)
     }
 
+    @Test("Both panes of a window restored in split view open the window's panel")
+    func restoredPanesOpenWindowPanel() throws {
+        let dir = try TemporaryDirectory()
+        let sub = try dir.folder("api")
+        let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+        let state = WindowState(folders: [dir.url.path, sub.path], activeIndex: 0)
+        let window = BrowserWindowModel(restoring: state, defaultStart: dir.url, defaults: defaults)
+        #expect(window.isSplit)
+
+        window.panes[1].openInTerminal()
+        #expect(window.terminal.session?.folder == window.panes[1].developerFolder)
+        window.panes[0].openInTerminal()
+        #expect(window.terminal.session?.folder == window.panes[0].developerFolder)
+    }
+
     @Test("A window's panel opens in the active pane's folder")
     func windowFolder() throws {
         let dir = try TemporaryDirectory()
