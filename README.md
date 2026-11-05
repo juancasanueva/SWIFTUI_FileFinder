@@ -93,3 +93,7 @@ FileFinder/            App sources
 FileFinderTests/       Unit tests
 FileFinderUITests/     UI tests
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
