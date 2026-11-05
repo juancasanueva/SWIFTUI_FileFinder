@@ -196,3 +196,25 @@ struct KeyBindingStoreTests {
         #expect(store.shortcut(for: .open)?.text == "cmd+o")
     }
 }
+
+@Suite("Recording a shortcut")
+struct ShortcutRecordingTests {
+    @Test("A key press becomes the shortcut it types: unshifted key, its modifiers")
+    func fromKeyPress() {
+        #expect(Shortcut(keyCode: 45, characters: "n", flags: [.command, .shift])?.text == "cmd+shift+n")
+        #expect(Shortcut(keyCode: 47, characters: ".", flags: [.command, .shift, .capsLock])?.text == "cmd+shift+.")
+        #expect(Shortcut(keyCode: 96, characters: "\u{F708}", flags: [.function])?.text == "f5")
+        #expect(Shortcut(keyCode: 48, characters: "\t", flags: [])?.text == "tab")
+        #expect(Shortcut(keyCode: 51, characters: "\u{7F}", flags: [.command])?.text == "cmd+delete")
+        #expect(Shortcut(keyCode: 126, characters: "\u{F700}", flags: [.command, .numericPad, .function])?.text == "cmd+up")
+        #expect(Shortcut(keyCode: 24, characters: "+", flags: [.command])?.text == "cmd+plus")
+        #expect(Shortcut(keyCode: 0, characters: "a", flags: [.control, .option])?.text == "ctrl+alt+a")
+    }
+
+    @Test("Escape alone, and keys that type nothing usable, give no shortcut")
+    func nothing() {
+        #expect(Shortcut(keyCode: 53, characters: "\u{1B}", flags: []) == nil)
+        #expect(Shortcut(keyCode: 0, characters: "", flags: [.command]) == nil)
+        #expect(Shortcut(keyCode: 0, characters: nil, flags: [.command]) == nil)
+    }
+}

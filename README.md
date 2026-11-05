@@ -35,6 +35,20 @@ A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the w
 | ⌥⇧⌘T | Open the folder in Terminal |
 | ⌥⇧⌘E | Open the folder in your editor |
 
+These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (click a shortcut, then type the new one; Escape cancels) or in `~/.config/filefinder/keybindings.json` (`$XDG_CONFIG_HOME/filefinder/keybindings.json` when that is set). The file is created with every action on first launch, and edits to it apply while the app runs:
+
+```json
+{
+  "goBack": "cmd+[",
+  "newFolder": "cmd+shift+n",
+  "openInTerminal": "cmd+alt+shift+t",
+  "smartClean": "",
+  "splitView": "cmd+d"
+}
+```
+
+A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with `+`: a character, `plus`, `tab`, `delete`, `return`, `escape`, `space`, `up`, `down`, `left`, `right` or `f1`–`f12`. An empty value means no shortcut. An action missing from the file, or with a value that can't be read, keeps its default. A file that isn't valid JSON is set aside as `keybindings.json.damaged-<time>` and the defaults are written again. ⌃1–⌃9 and the keys inside dialogs can't be changed.
+
 ## Requirements
 
 - macOS 27.2 or later
@@ -68,6 +82,7 @@ Some tests move small files to your real Trash.
 FileFinder/            App sources
   Browser/             Browser model and commands
     FileSystem/        Listing, watching, copying and file actions with Undo
+    Keybindings/       Menu shortcuts and keybindings.json
     Model/             File items, grouping, refresh pacing
     Navigation/        Typed paths, sidebar locations, status text
     SmartClean/        Storage overview and cleanup scanners

@@ -111,3 +111,32 @@ nonisolated struct Shortcut: Hashable, Sendable {
         }
     }
 }
+
+extension Shortcut {
+    /// Key codes of keys that type no usable character, by their names in the file.
+    private static let keyCodeNames: [UInt16: String] = [
+        48: "tab", 51: "delete", 36: "return", 76: "return", 49: "space",
+        126: "up", 125: "down", 123: "left", 124: "right",
+        122: "f1", 120: "f2", 99: "f3", 118: "f4", 96: "f5", 97: "f6",
+        98: "f7", 100: "f8", 101: "f9", 109: "f10", 103: "f11", 111: "f12",
+    ]
+
+    /// The shortcut a key press types; `nil` for Escape (it cancels recording) or a key that
+    /// types nothing usable. `characters` is the key without modifiers applied.
+    init?(keyCode: UInt16, characters: String?, flags: NSEvent.ModifierFlags) {
+        var modifiers: Modifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if let name = Self.keyCodeNames[keyCode] {
+            self.init(modifiers: modifiers, key: name)
+            return
+        }
+        guard keyCode != 53, let characters, characters.count == 1, let character = characters.first,
+              !character.isWhitespace, !character.isNewline,
+              character.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && $0.value < 0xF700 })
+        else { return nil }
+        self.init(modifiers: modifiers, key: character == "+" ? "plus" : String(character).lowercased())
+    }
+}
