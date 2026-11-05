@@ -138,6 +138,18 @@ struct TerminalPanelTests {
         #expect(panel.session != first)
     }
 
+    @Test("The same folder written differently (trailing slash, \"..\") keeps the shell", arguments: [
+        "/tmp/FileFinderTerminal/", "/tmp/FileFinderTerminal/sub/..", "/tmp/./FileFinderTerminal",
+    ])
+    func openSameFolderSpelledDifferently(path: String) throws {
+        let panel = TerminalPanelModel()
+        panel.open(in: URL(filePath: "/tmp/FileFinderTerminal", directoryHint: .notDirectory))
+        let first = try #require(panel.session)
+
+        panel.open(in: URL(filePath: path))
+        #expect(panel.session == first)
+    }
+
     @Test("Every pane's Open in Terminal reaches the window's panel, the second pane's too")
     func panesOpenWindowPanel() throws {
         let dir = try TemporaryDirectory()
