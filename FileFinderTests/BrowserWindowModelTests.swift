@@ -35,6 +35,27 @@ struct BrowserWindowModelTests {
         #expect(!window.isSplit)
     }
 
+    @Test("A new window opens with two panes on the start folder when the setting is on, one when off")
+    func twoPanesByDefault() throws {
+        #expect(!makeWindow().isSplit)
+
+        defaults.set(true, forKey: BrowserWindowModel.twoPanesByDefaultKey)
+        let window = makeWindow()
+        #expect(window.isSplit)
+        #expect(window.panes.map(\.currentFolder) == [dir.url.canonical, dir.url.canonical])
+        #expect(window.activeIndex == 0)
+    }
+
+    @Test("A restored window keeps its saved layout whatever the two-pane setting says")
+    func restoredLayoutWinsOverSetting() throws {
+        defaults.set(true, forKey: BrowserWindowModel.twoPanesByDefaultKey)
+        #expect(!makeWindow(restoring: WindowState(folders: [dir.url.path], activeIndex: 0)).isSplit)
+
+        defaults.set(false, forKey: BrowserWindowModel.twoPanesByDefaultKey)
+        let split = WindowState(folders: [dir.url.path, dir.url.path], activeIndex: 1)
+        #expect(makeWindow(restoring: split).isSplit)
+    }
+
     @Test("Closing the split keeps the active pane")
     func unsplitKeepsActivePane() throws {
         let window = makeWindow()

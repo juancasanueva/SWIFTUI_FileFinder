@@ -43,6 +43,9 @@ final class BrowserWindowModel {
     let workspaces: WorkspaceStore
     let terminal = TerminalPanelModel()
 
+    /// Settings ▸ General: a new window opens with two panes on its start folder. Restored windows keep their layout.
+    static let twoPanesByDefaultKey = "openWithTwoPanes"
+
     init(
         restoring state: WindowState? = nil,
         defaultStart: URL = BrowserModel.defaultStartFolder(),
@@ -58,7 +61,8 @@ final class BrowserWindowModel {
             let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
             return exists && isDirectory.boolValue ? URL(filePath: path) : defaultStart
         }
-        let starts = folders.isEmpty ? [defaultStart] : folders
+        let newWindowPanes = defaults.bool(forKey: Self.twoPanesByDefaultKey) ? 2 : 1
+        let starts = folders.isEmpty ? Array(repeating: defaultStart, count: newWindowPanes) : folders
         let savedWorkspaces = state?.workspaces ?? []
         panes = starts.enumerated().map { index, start in
             let id = index < savedWorkspaces.count ? savedWorkspaces[index].flatMap(UUID.init(uuidString:)) : nil

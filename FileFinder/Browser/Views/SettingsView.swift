@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings (⌘,): General (hidden files, the external terminal and editor folders open in, and updates) and Keyboard
+/// Settings (⌘,): General (hidden files, two panes in new windows, the external terminal and editor folders open in, and updates) and Keyboard
 /// (the menu shortcuts, kept in keybindings.json).
 struct SettingsView: View {
     let tools: DeveloperTools
@@ -24,6 +24,7 @@ private struct GeneralSettings: View {
     let updater: (any AppUpdating)?
     /// The same setting as View ▸ Show Hidden Files; open panes follow it right away.
     @AppStorage(BrowserModel.showHiddenKey) private var showHidden = false
+    @AppStorage(BrowserWindowModel.twoPanesByDefaultKey) private var twoPanes = false
 
     var body: some View {
         Form {
@@ -31,6 +32,14 @@ private struct GeneralSettings: View {
                 Toggle("Show hidden files", isOn: $showHidden)
             } footer: {
                 Text(hiddenFooter)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Toggle("Open new windows with two panes", isOn: $twoPanes)
+            } footer: {
+                Text(twoPanesFooter)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -50,13 +59,18 @@ private struct GeneralSettings: View {
         // A grouped Form under-reports its height, so the window would open with a scroll bar;
         // the ideal height fits every section.
         .frame(width: 460)
-        .frame(idealHeight: updater == nil ? 300 : 420)
+        .frame(idealHeight: updater == nil ? 440 : 580)
         .fixedSize(horizontal: false, vertical: true)
     }
 
     private var hiddenFooter: String {
         let shortcut = keys.shortcut(for: .toggleHiddenFiles).map { " \($0.display) also turns them on or off." } ?? ""
         return "Files and folders whose names start with a dot, such as .git or .zshrc, in every window.\(shortcut)"
+    }
+
+    private var twoPanesFooter: String {
+        let shortcut = keys.shortcut(for: .splitView).map { " \($0.display) splits or joins a window at any time." } ?? ""
+        return "Windows restored after relaunch keep their layout.\(shortcut)"
     }
 
     private var footer: String {
