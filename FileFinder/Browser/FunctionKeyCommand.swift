@@ -2,7 +2,7 @@ import Foundation
 
 /// The commands in the function key bar at the bottom of the window.
 enum FunctionKeyCommand: CaseIterable, Identifiable {
-    case rename, copy, move, makeFolder, delete, makeMarkdownFile
+    case rename, copy, move, makeFolder, delete, makeMarkdownFile, makeTextFile
 
     var id: Self { self }
 
@@ -14,25 +14,27 @@ enum FunctionKeyCommand: CaseIterable, Identifiable {
         case .makeFolder: "Mkdir"
         case .delete: "Delete"
         case .makeMarkdownFile: "New MD"
+        case .makeTextFile: "New TXT"
         }
     }
 
-    /// The keymap action this command shares its key with; `nil` for the fixed keys F7, F8 and F9.
+    /// The keymap action this command shares its key with; `nil` for the fixed keys F7 to F10.
     var keyAction: KeyAction? {
         switch self {
         case .rename: .rename
         case .copy: .copyToOtherPane
         case .move: .moveToOtherPane
-        case .makeFolder, .delete, .makeMarkdownFile: nil
+        case .makeFolder, .delete, .makeMarkdownFile, .makeTextFile: nil
         }
     }
 
-    /// F7 and F8 sit beside ⇧⌘N and ⌘⌫, and F9 is New Markdown File, so they are fixed rather than kept in the keymap.
+    /// F7 and F8 sit beside ⇧⌘N and ⌘⌫, F9 is New Markdown File and F10 is New Text File, so they are fixed rather than kept in the keymap.
     var fixedShortcut: Shortcut? {
         switch self {
         case .makeFolder: Shortcut("f7")
         case .delete: Shortcut("f8")
         case .makeMarkdownFile: Shortcut("f9")
+        case .makeTextFile: Shortcut("f10")
         case .rename, .copy, .move: nil
         }
     }
@@ -57,7 +59,7 @@ extension BrowserWindowModel {
         return switch command {
         case .rename: active.selection.count == 1
         case .copy, .move: isSplit && hasSelection
-        case .makeFolder, .makeMarkdownFile: !active.isShowingWorkspace
+        case .makeFolder, .makeMarkdownFile, .makeTextFile: !active.isShowingWorkspace
         case .delete: hasSelection
         }
     }
@@ -70,6 +72,7 @@ extension BrowserWindowModel {
         case .move: await moveToOtherPane()
         case .makeFolder: await active.newFolder()
         case .makeMarkdownFile: await active.newMarkdownFile()
+        case .makeTextFile: await active.newTextFile()
         // In a workspace this removes the entries, as ⌘⌫ does; nothing is trashed from there.
         case .delete: await active.trashSelection()
         }
