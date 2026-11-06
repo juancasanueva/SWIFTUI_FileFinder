@@ -141,11 +141,11 @@ struct BrowserModelTests {
         #expect(model.loadFailure?.needsFullDiskAccess == true)
     }
 
-    @Test("The default start folder falls back to home when Downloads is missing")
+    @Test("A new window starts in the home folder, whether or not Downloads exists")
     func defaultStartFolder() throws {
         #expect(BrowserModel.defaultStartFolder(home: dir.url) == dir.url)
-        let downloads = try dir.folder("Downloads")
-        #expect(BrowserModel.defaultStartFolder(home: dir.url).path == downloads.path)
+        _ = try dir.folder("Downloads")
+        #expect(BrowserModel.defaultStartFolder(home: dir.url) == dir.url)
     }
 
     // MARK: - Folder sizes

@@ -195,10 +195,9 @@ final class BrowserModel {
         if showHidden != stored { showHidden = stored }
     }
 
-    /// Downloads when it exists, otherwise the home folder.
+    /// Where a new window starts: the home folder.
     static func defaultStartFolder(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        let downloads = home.appending(path: "Downloads")
-        return FileManager.default.fileExists(atPath: downloads.path) ? downloads : home
+        home
     }
 
     // MARK: Derived values
