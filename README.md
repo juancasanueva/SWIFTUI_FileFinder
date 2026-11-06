@@ -2,6 +2,10 @@
 
 A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the whole disk like Finder and adds dual panes, workspaces, tidying, developer tools and a safe cleanup page.
 
+![FileFinder with two panes, the sidebar and the function key bar](docs/screenshots/dual-pane.png)
+
+![FileFinder with the built-in terminal panel open in the current folder](docs/screenshots/terminal-panel.png)
+
 ## Install
 
 ```sh
