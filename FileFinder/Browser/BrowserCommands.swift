@@ -40,6 +40,9 @@ struct BrowserCommands: Commands {
             Button("Open in Terminal") { browser?.openInTerminal() }
                 .keyboardShortcut(shortcut(.openInTerminal))
                 .disabled(browser?.developerFolder == nil || isTyping)
+            Button("Open in external terminal") { browser?.openInExternalTerminal() }
+                .keyboardShortcut(shortcut(.openInExternalTerminal))
+                .disabled(browser?.developerFolder == nil || isTyping)
             Button(DeveloperTools.shared.openTitle(.editor)) { browser?.openInEditor() }
                 .keyboardShortcut(shortcut(.openInEditor))
                 .disabled(browser?.developerFolder == nil || isTyping)

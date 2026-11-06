@@ -61,6 +61,10 @@ struct ShortcutTextTests {
     func defaults() {
         #expect(KeyAction.newFolder.defaultShortcut?.text == "cmd+shift+n")
         #expect(KeyAction.openInTerminal.defaultShortcut?.text == "cmd+alt+shift+t")
+        #expect(KeyAction.openInExternalTerminal.defaultShortcut?.text == "cmd+ctrl+alt+t")
+        #expect(KeyAction.openInExternalTerminal.defaultShortcut?.display == "⌃⌥⌘T")
+        #expect(KeyAction.openInExternalTerminal.menu == .file)
+        #expect(KeyAction.openInExternalTerminal.rawValue == "openInExternalTerminal")
         #expect(KeyAction.splitView.defaultShortcut?.text == "cmd+d")
         #expect(KeyAction.goBack.defaultShortcut?.text == "cmd+[")
         #expect(KeyAction.copyToOtherPane.defaultShortcut?.text == "f5")

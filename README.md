@@ -47,6 +47,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | ⌃1–⌃9 | Open a workspace |
 | ⌥⌘T | Tidy this folder |
 | ⌥⇧⌘T | Open the folder in the terminal panel |
+| ⌃⌥⌘T | Open the folder in your external terminal |
 | ⌥⇧⌘E | Open the folder in your editor |
 
 These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (click a shortcut, then type the new one; Escape cancels) or in `~/.config/filefinder/keybindings.json` (`$XDG_CONFIG_HOME/filefinder/keybindings.json` when that is set). The file is created with every action on first launch, and edits to it apply while the app runs:

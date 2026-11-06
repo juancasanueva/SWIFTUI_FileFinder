@@ -5,7 +5,7 @@ import Foundation
 nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // File
     case newFolder, newWorkspace, open, rename, tidyFolder, tidyDownloads, smartClean
-    case openInTerminal, openInEditor, copyToOtherPane, moveToOtherPane, moveToTrash
+    case openInTerminal, openInExternalTerminal, openInEditor, copyToOtherPane, moveToOtherPane, moveToTrash
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
     // View
@@ -24,7 +24,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     var menu: Menu {
         switch self {
         case .newFolder, .newWorkspace, .open, .rename, .tidyFolder, .tidyDownloads, .smartClean,
-             .openInTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
+             .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
         case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
@@ -42,6 +42,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .tidyDownloads: "Tidy Downloads"
         case .smartClean: "Smart Clean"
         case .openInTerminal: "Open in Terminal"
+        case .openInExternalTerminal: "Open in external terminal"
         case .openInEditor: "Open in Editor"
         case .copyToOtherPane: "Copy to Other Pane"
         case .moveToOtherPane: "Move to Other Pane"
@@ -82,6 +83,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .tidyFolder: "cmd+alt+t"
         case .tidyDownloads, .smartClean: nil
         case .openInTerminal: "cmd+alt+shift+t"
+        case .openInExternalTerminal: "cmd+ctrl+alt+t"
         case .openInEditor: "cmd+alt+shift+e"
         case .copyToOtherPane: "f5"
         case .moveToOtherPane: "f6"
