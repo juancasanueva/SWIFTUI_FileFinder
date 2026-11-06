@@ -104,6 +104,7 @@ struct FileContextMenu: View {
             if !model.isShowingWorkspace {
                 Button("New Folder") { Task { await model.newFolder() } }
                 Button("New Markdown File") { Task { await model.newMarkdownFile() } }
+                Button("New Text File") { Task { await model.newTextFile() } }
                 Button("Paste") { Task { await model.paste() } }.disabled(!model.actions.canPaste)
                 Divider()
                 DeveloperOpenButtons(model: model, folder: model.currentFolder)

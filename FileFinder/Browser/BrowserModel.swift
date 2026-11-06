@@ -750,6 +750,11 @@ final class BrowserModel {
         await createAndRename { try await $0.createMarkdownFile(in: $1) }
     }
 
+    /// Creates an empty new.txt here, selects it and starts renaming it.
+    func newTextFile() async {
+        await createAndRename { try await $0.createTextFile(in: $1) }
+    }
+
     private func createAndRename(_ create: (FileActions, URL) async throws -> URL) async {
         guard !isShowingWorkspace else { return }
         let folder = currentFolder

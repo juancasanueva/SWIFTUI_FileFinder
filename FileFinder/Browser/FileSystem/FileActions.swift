@@ -109,7 +109,7 @@ private final class RelocationRecord {
     init(transfers: [FileTransfer]) { self.transfers = transfers }
 }
 
-/// Undoing New Folder or New Markdown File found something put in it since.
+/// Undoing New Folder, New Markdown File or New Text File found something put in it since.
 nonisolated struct FolderNotEmptyError: LocalizedError {
     let name: String
     var errorDescription: String? {
@@ -316,17 +316,27 @@ final class FileActions {
         }
     }
 
-    // MARK: - New Markdown file
+    // MARK: - New empty files
 
     /// Creates an empty "new.md" ("new 2.md", …) in `folder`.
     @discardableResult
     func createMarkdownFile(in folder: URL) async throws -> URL {
+        try await createEmptyFile(named: "new.md", in: folder, actionName: "New Markdown File")
+    }
+
+    /// Creates an empty "new.txt" ("new 2.txt", …) in `folder`.
+    @discardableResult
+    func createTextFile(in folder: URL) async throws -> URL {
+        try await createEmptyFile(named: "new.txt", in: folder, actionName: "New Text File")
+    }
+
+    private func createEmptyFile(named name: String, in folder: URL, actionName: String) async throws -> URL {
         try await serialized {
             let url = Self.uniqueDestination(
-                for: folder.appendingPathComponent("new.md"), in: folder, copyStyle: false)
-            try await Self.performCreateMarkdownFile(url)
+                for: folder.appendingPathComponent(name), in: folder, copyStyle: false)
+            try await Self.performCreateEmptyFile(url)
             let inTrash = await Self.trashNeeds([FileTransfer(from: url, to: url)], trash: self.trashFolder).undo
-            self.registerNewMarkdownFileUndo(url, inTrash: inTrash)
+            self.registerNewEmptyFileUndo(url, inTrash: inTrash, actionName: actionName)
             return url
         }
     }
@@ -875,21 +885,21 @@ final class FileActions {
         }
     }
 
-    /// Undoing New Markdown File trashes the file, but only while it is still empty.
-    private func registerNewMarkdownFileUndo(_ url: URL, inTrash: Bool) {
-        registerUndo("New Markdown File", target: inTrash ? trashUndoTarget : self) { actions in
-            actions.registerRecreateMarkdownFileUndo(url, inTrash: inTrash)
+    /// Undoing New Markdown File or New Text File trashes the file, but only while it is still empty.
+    private func registerNewEmptyFileUndo(_ url: URL, inTrash: Bool, actionName: String) {
+        registerUndo(actionName, target: inTrash ? trashUndoTarget : self) { actions in
+            actions.registerRecreateEmptyFileUndo(url, inTrash: inTrash, actionName: actionName)
             let trasher = actions.trasher
             actions.enqueue { await Self.performTrashIfEmptyFile(url, trasher: trasher) }
         }
     }
 
-    private func registerRecreateMarkdownFileUndo(_ url: URL, inTrash: Bool) {
-        registerUndo("New Markdown File") { actions in
-            actions.registerNewMarkdownFileUndo(url, inTrash: inTrash)
+    private func registerRecreateEmptyFileUndo(_ url: URL, inTrash: Bool, actionName: String) {
+        registerUndo(actionName) { actions in
+            actions.registerNewEmptyFileUndo(url, inTrash: inTrash, actionName: actionName)
             actions.enqueue {
                 do {
-                    try await Self.performCreateMarkdownFile(url)
+                    try await Self.performCreateEmptyFile(url)
                     return BatchResult()
                 } catch {
                     return BatchResult(error: error)
@@ -1119,7 +1129,7 @@ final class FileActions {
     }
 
     /// Fails rather than overwriting when something already has that name.
-    @concurrent private nonisolated static func performCreateMarkdownFile(_ url: URL) async throws {
+    @concurrent private nonisolated static func performCreateEmptyFile(_ url: URL) async throws {
         try Data().write(to: url, options: .withoutOverwriting)
     }
 

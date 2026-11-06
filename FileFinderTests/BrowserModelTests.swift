@@ -355,6 +355,19 @@ struct BrowserModelTests {
         #expect(model.renamingURL == url)
     }
 
+    @Test("New Text File selects new.txt and starts renaming it")
+    func newTextFileStartsRename() async throws {
+        let model = makeModel()
+        await model.reload()
+
+        await model.newTextFile()
+
+        let url = dir.url.appending(path: "new.txt").canonical
+        #expect(model.items.map(\.url) == [url])
+        #expect(model.selection == [url])
+        #expect(model.renamingURL == url)
+    }
+
     @Test("Cancelling a rename keeps the name and selection and gives the file list focus back")
     func cancelRenameRefocusesList() async throws {
         let file = try dir.file("keep.txt")

@@ -280,6 +280,30 @@ struct FileActionsTests {
         #expect(reported.count == 1)
     }
 
+    // MARK: - New Text file
+
+    @Test("New Text File creates an empty new.txt, then new 2.txt")
+    func newTextFileNaming() async throws {
+        let first = try await actions.createTextFile(in: dir.url)
+        let second = try await actions.createTextFile(in: dir.url)
+
+        #expect(first.lastPathComponent == "new.txt")
+        #expect(second.lastPathComponent == "new 2.txt")
+        #expect(try Data(contentsOf: first).isEmpty)
+    }
+
+    @Test("Undoing New Text File removes the empty file, and redo creates it again")
+    func undoRedoNewTextFile() async throws {
+        let file = try await actions.createTextFile(in: dir.url)
+
+        await undo()
+        #expect(!exists(file))
+
+        await redo()
+        #expect(exists(file))
+        #expect(try Data(contentsOf: file).isEmpty)
+    }
+
     // MARK: - Ordering
 
     @Test("Undoing a move and a rename back to back restores the original name and place")
