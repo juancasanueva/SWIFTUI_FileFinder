@@ -150,6 +150,19 @@ struct BrowserWindowModelTests {
         #expect(window.active.items.isEmpty)
     }
 
+    @Test("F9 makes a new Markdown file in the active pane and starts renaming it")
+    func f9MakesMarkdownFile() async throws {
+        let window = makeWindow()
+        await window.active.reload()
+
+        await window.perform(.makeMarkdownFile)
+
+        let created = dir.url.appending(path: "new.md").canonical
+        #expect(FileManager.default.fileExists(atPath: created.path))
+        #expect(window.active.selection == [created])
+        #expect(window.active.renamingURL == created)
+    }
+
     @Test("Bar commands are available only when their action can run")
     func barAvailability() async throws {
         let a = try dir.file("a.txt")
@@ -157,11 +170,11 @@ struct BrowserWindowModelTests {
         let window = makeWindow()
         await window.active.reload()
 
-        // Nothing selected, one pane: only Mkdir.
-        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.makeFolder])
+        // Nothing selected, one pane: only Mkdir and New MD.
+        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.makeFolder, .makeMarkdownFile])
 
         window.active.selection = [a.canonical]
-        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.rename, .makeFolder, .delete])
+        #expect(FunctionKeyCommand.allCases.filter(window.canPerform) == [.rename, .makeFolder, .delete, .makeMarkdownFile])
 
         window.active.selection = [a.canonical, b.canonical]
         #expect(!window.canPerform(.rename))
@@ -177,13 +190,13 @@ struct BrowserWindowModelTests {
     @Test("The bar shows F5 Copy and F6 Move only with two panes")
     func copyAndMoveShownOnlyWhenSplit() {
         let window = makeWindow()
-        #expect(window.barCommands == [.rename, .makeFolder, .delete])
+        #expect(window.barCommands == [.rename, .makeFolder, .delete, .makeMarkdownFile])
 
         window.toggleSplit()
-        #expect(window.barCommands == [.rename, .copy, .move, .makeFolder, .delete])
+        #expect(window.barCommands == [.rename, .copy, .move, .makeFolder, .delete, .makeMarkdownFile])
 
         window.toggleSplit()
-        #expect(window.barCommands == [.rename, .makeFolder, .delete])
+        #expect(window.barCommands == [.rename, .makeFolder, .delete, .makeMarkdownFile])
     }
 
     @Test("A disabled bar command does nothing")
@@ -200,15 +213,15 @@ struct BrowserWindowModelTests {
         #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
-    @Test("The bar shows each command's key from the keymap; F7 and F8 are fixed")
+    @Test("The bar shows each command's key from the keymap; F7, F8 and F9 are fixed")
     func barKeyLabels() throws {
         let defaults: [KeyAction: Shortcut] = [
             .rename: try #require(Shortcut("f2")), .copyToOtherPane: try #require(Shortcut("f5")),
             .moveToOtherPane: try #require(Shortcut("f6")),
         ]
         #expect(FunctionKeyCommand.allCases.map { $0.keyLabel(defaults.get) }
-            == ["F2", "F5", "F6", "F7", "F8"])
-        #expect(FunctionKeyCommand.allCases.map(\.title) == ["Rename", "Copy", "Move", "Mkdir", "Delete"])
+            == ["F2", "F5", "F6", "F7", "F8", "F9"])
+        #expect(FunctionKeyCommand.allCases.map(\.title) == ["Rename", "Copy", "Move", "Mkdir", "Delete", "New MD"])
 
         let rebound: [KeyAction: Shortcut] = [.rename: try #require(Shortcut("cmd+r"))]
         #expect(FunctionKeyCommand.rename.keyLabel(rebound.get) == "⌘R")

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The bar at the bottom of the window: each function key with what it does. Every entry is
-/// also a button. F7 and F8 take their keys here; F2, F5 and F6 belong to the menus.
+/// also a button. F7, F8 and F9 take their keys here; F2, F5 and F6 belong to the menus.
 struct FunctionKeyBar: View {
     let window: BrowserWindowModel
     let keys: KeyBindingStore
@@ -40,7 +40,7 @@ struct FunctionKeyBar: View {
         .help(label + " " + command.title)
     }
 
-    /// F7 or F8, unless keybindings.json gives that key to a menu action, which then wins.
+    /// F7, F8 or F9, unless keybindings.json gives that key to a menu action, which then wins.
     private func ownShortcut(_ command: FunctionKeyCommand) -> Shortcut? {
         guard let shortcut = command.fixedShortcut,
               !KeyAction.allCases.contains(where: { keys.shortcut(for: $0) == shortcut })

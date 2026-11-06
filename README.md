@@ -14,7 +14,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 
 ## Features
 
-- **Browser**: a sidebar with Favorites, Locations, external drives and a Settings button at the bottom; a path bar that accepts typed paths (Tab completes); list and card views with Small, Medium and Large icons; a Permissions column in list view (`drwxr-xr-x`, as `ls -l` shows it); folder sizes and item counts; a status bar showing the item count, selection and free space; a function key bar at the bottom (F2 Rename, F7 Mkdir, F8 Delete, plus F5 Copy and F6 Move with two panes) whose entries are also buttons.
+- **Browser**: a sidebar with Favorites, Locations, external drives and a Settings button at the bottom; a path bar that accepts typed paths (Tab completes); list and card views with Small, Medium and Large icons; a Permissions column in list view (`drwxr-xr-x`, as `ls -l` shows it); folder sizes and item counts; a status bar showing the item count, selection and free space; a function key bar at the bottom (F2 Rename, F7 Mkdir, F8 Delete, F9 New MD, plus F5 Copy and F6 Move with two panes) whose entries are also buttons.
 - **Files**: Quick Look, rename in place, New Folder, show hidden files (⇧⌘. or Settings ▸ General, shared by every window), live refresh, copy/cut/paste that works with Finder, and Undo for moves, copies, renames and Move to Trash.
 - **Preview**: cards show real previews (a document's first page, a photo, a video frame). A preview pane shows the selected file, or a two-level look into the selected folder.
 - **Dual pane**: two panes side by side, copy or move the selection to the other pane, drag to move (hold ⌥ to copy), a transfer queue with progress and Cancel, and a choice of keep both, replace or skip on name conflicts. Both panes are restored after relaunch.
@@ -35,6 +35,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | Escape | Cancel a rename or the typed path |
 | ⇧⌘N or F7 | New Folder |
 | F8 | Move to Trash (like ⌘⌫) |
+| F9 | New Markdown File (an empty `new.md`; also in the right-click menu on empty space) |
 | ⇧⌘. | Show or hide hidden files |
 | ⌘+ / ⌘− | Bigger or smaller icons |
 | ⇧⌘P | Preview pane |
@@ -62,7 +63,7 @@ These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (
 }
 ```
 
-A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with `+`: a character, `plus`, `tab`, `delete`, `return`, `escape`, `space`, `up`, `down`, `left`, `right` or `f1`–`f12`. An empty value means no shortcut. An action missing from the file, or with a value that can't be read, keeps its default. At launch, a file that isn't valid JSON is set aside as `keybindings.json.damaged-<time>` and the defaults are written again; saved with a mistake while the app runs, it is left alone and the shortcuts in use stay until it reads again. In Settings, a key needs ⌘, ⌃ or ⌥ (F1–F12 and Tab can stand alone), so a shortcut never takes a key needed for typing. ⌃1–⌃9, F7 and F8 (New Folder and Move to Trash in the function key bar) and the keys inside dialogs can't be changed; giving F7 or F8 to a menu action in the file takes it from the bar.
+A shortcut is modifiers (`cmd`, `ctrl`, `alt`, `shift`) and one key, joined with `+`: a character, `plus`, `tab`, `delete`, `return`, `escape`, `space`, `up`, `down`, `left`, `right` or `f1`–`f12`. An empty value means no shortcut. An action missing from the file, or with a value that can't be read, keeps its default. At launch, a file that isn't valid JSON is set aside as `keybindings.json.damaged-<time>` and the defaults are written again; saved with a mistake while the app runs, it is left alone and the shortcuts in use stay until it reads again. In Settings, a key needs ⌘, ⌃ or ⌥ (F1–F12 and Tab can stand alone), so a shortcut never takes a key needed for typing. ⌃1–⌃9, F7, F8 and F9 (New Folder, Move to Trash and New Markdown File in the function key bar) and the keys inside dialogs can't be changed; giving F7, F8 or F9 to a menu action in the file takes it from the bar.
 
 ## Requirements
 

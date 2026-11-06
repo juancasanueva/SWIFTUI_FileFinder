@@ -243,6 +243,43 @@ struct FileActionsTests {
         #expect(reported.count == 1)
     }
 
+    // MARK: - New Markdown file
+
+    @Test("New Markdown File creates an empty new.md, then new 2.md")
+    func newMarkdownFileNaming() async throws {
+        let first = try await actions.createMarkdownFile(in: dir.url)
+        let second = try await actions.createMarkdownFile(in: dir.url)
+
+        #expect(first.lastPathComponent == "new.md")
+        #expect(second.lastPathComponent == "new 2.md")
+        #expect(try Data(contentsOf: first).isEmpty)
+    }
+
+    @Test("Undoing New Markdown File removes the empty file, and redo creates it again")
+    func undoRedoNewMarkdownFile() async throws {
+        let file = try await actions.createMarkdownFile(in: dir.url)
+
+        await undo()
+        #expect(!exists(file))
+
+        await redo()
+        #expect(exists(file))
+        #expect(try Data(contentsOf: file).isEmpty)
+    }
+
+    @Test("Undoing New Markdown File leaves the file in place once something was written to it")
+    func undoNewMarkdownFileKeepsContents() async throws {
+        var reported: [String] = []
+        actions.onBackgroundError = { reported.append($0) }
+        let file = try await actions.createMarkdownFile(in: dir.url)
+        try Data("notes".utf8).write(to: file)
+
+        await undo()
+
+        #expect(try Data(contentsOf: file) == Data("notes".utf8))
+        #expect(reported.count == 1)
+    }
+
     // MARK: - Ordering
 
     @Test("Undoing a move and a rename back to back restores the original name and place")

@@ -2,7 +2,7 @@ import Foundation
 
 /// The commands in the function key bar at the bottom of the window.
 enum FunctionKeyCommand: CaseIterable, Identifiable {
-    case rename, copy, move, makeFolder, delete
+    case rename, copy, move, makeFolder, delete, makeMarkdownFile
 
     var id: Self { self }
 
@@ -13,24 +13,26 @@ enum FunctionKeyCommand: CaseIterable, Identifiable {
         case .move: "Move"
         case .makeFolder: "Mkdir"
         case .delete: "Delete"
+        case .makeMarkdownFile: "New MD"
         }
     }
 
-    /// The keymap action this command shares its key with; `nil` for the fixed keys F7 and F8.
+    /// The keymap action this command shares its key with; `nil` for the fixed keys F7, F8 and F9.
     var keyAction: KeyAction? {
         switch self {
         case .rename: .rename
         case .copy: .copyToOtherPane
         case .move: .moveToOtherPane
-        case .makeFolder, .delete: nil
+        case .makeFolder, .delete, .makeMarkdownFile: nil
         }
     }
 
-    /// F7 and F8 sit beside ⇧⌘N and ⌘⌫, so they are fixed rather than kept in the keymap.
+    /// F7 and F8 sit beside ⇧⌘N and ⌘⌫, and F9 is New Markdown File, so they are fixed rather than kept in the keymap.
     var fixedShortcut: Shortcut? {
         switch self {
         case .makeFolder: Shortcut("f7")
         case .delete: Shortcut("f8")
+        case .makeMarkdownFile: Shortcut("f9")
         case .rename, .copy, .move: nil
         }
     }
@@ -55,7 +57,7 @@ extension BrowserWindowModel {
         return switch command {
         case .rename: active.selection.count == 1
         case .copy, .move: isSplit && hasSelection
-        case .makeFolder: !active.isShowingWorkspace
+        case .makeFolder, .makeMarkdownFile: !active.isShowingWorkspace
         case .delete: hasSelection
         }
     }
@@ -67,6 +69,7 @@ extension BrowserWindowModel {
         case .copy: await copyToOtherPane()
         case .move: await moveToOtherPane()
         case .makeFolder: await active.newFolder()
+        case .makeMarkdownFile: await active.newMarkdownFile()
         // In a workspace this removes the entries, as ⌘⌫ does; nothing is trashed from there.
         case .delete: await active.trashSelection()
         }

@@ -742,10 +742,19 @@ final class BrowserModel {
 
     /// Creates an untitled folder here, selects it and starts renaming it.
     func newFolder() async {
+        await createAndRename { try await $0.createFolder(in: $1) }
+    }
+
+    /// Creates an empty new.md here, selects it and starts renaming it.
+    func newMarkdownFile() async {
+        await createAndRename { try await $0.createMarkdownFile(in: $1) }
+    }
+
+    private func createAndRename(_ create: (FileActions, URL) async throws -> URL) async {
         guard !isShowingWorkspace else { return }
         let folder = currentFolder
         do {
-            let created = try await actions.createFolder(in: folder).canonical
+            let created = try await create(actions, folder).canonical
             await reload()
             guard folder == currentFolder else { return }
             selection = [created]
