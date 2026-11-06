@@ -153,6 +153,17 @@ struct DeveloperToolsTests {
         #expect(pane.alertMessage == nil)
     }
 
+    @Test("With no terminal picked, Open in external terminal uses the first installed in the reference order")
+    func paneOpensFallbackExternalTerminal() async throws {
+        let sub = try dir.folder("app")
+        let pane = try makePane(["com.googlecode.iterm2", "com.apple.Terminal"])
+
+        pane.openInExternalTerminal(sub.canonical)
+
+        #expect(opened.requests == [.folder(sub.canonical, app: URL(filePath: "/Applications/com.apple.Terminal.app"))])
+        #expect(pane.alertMessage == nil)
+    }
+
     @Test("Without an installed terminal, Open in external terminal says so")
     func paneNoExternalTerminal() async throws {
         let pane = try makePane([])
