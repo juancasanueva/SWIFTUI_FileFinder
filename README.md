@@ -6,6 +6,8 @@ A keyboard-friendly file browser for macOS, written in SwiftUI. It browses the w
 
 ![FileFinder with the built-in terminal panel open in the current folder](docs/screenshots/terminal-panel.png)
 
+![Smart Clean showing disk usage and cleanup suggestions grouped into Safe to clear and Your call](docs/screenshots/smart-clean.png)
+
 ## Install
 
 ```sh
