@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings (⌘,): General (hidden files, the editor folders open in, and updates) and Keyboard
+/// Settings (⌘,): General (hidden files, the external terminal and editor folders open in, and updates) and Keyboard
 /// (the menu shortcuts, kept in keybindings.json).
 struct SettingsView: View {
     let tools: DeveloperTools
@@ -36,6 +36,7 @@ private struct GeneralSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section {
+                AppPicker(title: "External terminal", role: .terminal, tools: tools)
                 AppPicker(title: "Editor", role: .editor, tools: tools)
             } footer: {
                 Text(LocalizedStringKey(footer))   // renders the `code` spans
@@ -49,7 +50,7 @@ private struct GeneralSettings: View {
         // A grouped Form under-reports its height, so the window would open with a scroll bar;
         // the ideal height fits every section.
         .frame(width: 460)
-        .frame(idealHeight: updater == nil ? 260 : 380)
+        .frame(idealHeight: updater == nil ? 300 : 420)
         .fixedSize(horizontal: false, vertical: true)
     }
 

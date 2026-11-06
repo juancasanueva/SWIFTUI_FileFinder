@@ -138,6 +138,29 @@ struct DeveloperToolsTests {
         #expect(opened.requests.isEmpty)
     }
 
+    @Test("Open in external terminal uses the Settings terminal, not the panel")
+    func paneOpensExternalTerminal() async throws {
+        let sub = try dir.folder("app")
+        let pane = try makePane(["com.apple.Terminal", "com.googlecode.iterm2"])
+        pane.developerTools.setPreferred(DeveloperApp.terminals[1], for: .terminal)
+        var terminalFolders: [URL] = []
+        pane.onOpenTerminal = { terminalFolders.append($0) }
+
+        pane.openInExternalTerminal(sub.canonical)
+
+        #expect(terminalFolders.isEmpty)
+        #expect(opened.requests == [.folder(sub.canonical, app: URL(filePath: "/Applications/com.googlecode.iterm2.app"))])
+        #expect(pane.alertMessage == nil)
+    }
+
+    @Test("Without an installed terminal, Open in external terminal says so")
+    func paneNoExternalTerminal() async throws {
+        let pane = try makePane([])
+        pane.openInExternalTerminal()
+        #expect(pane.alertMessage == "No terminal is installed. Install one of Terminal, iTerm, Warp or Ghostty.")
+        #expect(opened.requests.isEmpty)
+    }
+
     @Test("Without an installed editor the pane says so")
     func paneNoEditor() async throws {
         let pane = try makePane([])

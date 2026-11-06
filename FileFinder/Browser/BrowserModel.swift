@@ -772,6 +772,8 @@ final class BrowserModel {
         guard let folder = folder ?? developerFolder else { return }
         onOpenTerminal?(folder)
     }
+    /// Opens the folder in the terminal app picked in Settings, outside FileFinder.
+    func openInExternalTerminal(_ folder: URL? = nil) { openDeveloperApp(.terminal, folder) }
     func openInEditor(_ folder: URL? = nil) { openDeveloperApp(.editor, folder) }
 
     /// What Return does in the path bar: go to a typed folder, or run a command such as

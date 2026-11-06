@@ -153,13 +153,15 @@ struct FileContextMenu: View {
     }
 }
 
-/// "Open in Terminal" and "Open in <editor>" for one folder.
+/// "Open in Terminal" (the panel), "Open in external terminal" (the Settings terminal) and
+/// "Open in <editor>" for one folder.
 struct DeveloperOpenButtons: View {
     let model: BrowserModel
     let folder: URL
 
     var body: some View {
         Button("Open in Terminal") { model.openInTerminal(folder) }
+        Button("Open in external terminal") { model.openInExternalTerminal(folder) }
         Button(model.developerTools.openTitle(.editor)) { model.openInEditor(folder) }
     }
 }
