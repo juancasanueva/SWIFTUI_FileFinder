@@ -258,13 +258,16 @@ struct FileActionsTests {
     @Test("Undoing New Markdown File removes the empty file, and redo creates it again")
     func undoRedoNewMarkdownFile() async throws {
         let file = try await actions.createMarkdownFile(in: dir.url)
+        #expect(undoManager.undoActionName == "New Markdown File")
 
         await undo()
         #expect(!exists(file))
+        #expect(undoManager.redoActionName == "New Markdown File")
 
         await redo()
         #expect(exists(file))
         #expect(try Data(contentsOf: file).isEmpty)
+        #expect(undoManager.undoActionName == "New Markdown File")
     }
 
     @Test("Undoing New Markdown File leaves the file in place once something was written to it")
@@ -295,13 +298,16 @@ struct FileActionsTests {
     @Test("Undoing New Text File removes the empty file, and redo creates it again")
     func undoRedoNewTextFile() async throws {
         let file = try await actions.createTextFile(in: dir.url)
+        #expect(undoManager.undoActionName == "New Text File")
 
         await undo()
         #expect(!exists(file))
+        #expect(undoManager.redoActionName == "New Text File")
 
         await redo()
         #expect(exists(file))
         #expect(try Data(contentsOf: file).isEmpty)
+        #expect(undoManager.undoActionName == "New Text File")
     }
 
     // MARK: - Ordering
