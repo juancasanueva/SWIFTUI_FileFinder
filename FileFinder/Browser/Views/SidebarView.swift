@@ -26,19 +26,11 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: selection) {
-            Section {
+            Section("Workspaces") {
                 ForEach(Array(window.workspaces.workspaces.enumerated()), id: \.element.id) { index, workspace in
                     workspaceRow(workspace, number: index + 1)
                 }
-            } header: {
-                HStack {
-                    Text("Workspaces")
-                    Spacer()
-                    Button("New Workspace", systemImage: "plus") { window.requestNewWorkspace() }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("New Workspace (⌥⌘N)")
-                }
+                newWorkspaceButton
             }
             Section("Favorites") {
                 ForEach(favorites) { row($0) }
@@ -65,6 +57,26 @@ struct SidebarView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in
             volumeChanges += 1
         }
+    }
+
+    /// Sits below the last workspace, outlined so it reads as an action rather than a row.
+    private var newWorkspaceButton: some View {
+        Button { window.requestNewWorkspace() } label: {
+            Label("New Workspace", systemImage: "plus.circle")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .contentShape(.rect)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.separator, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .selectionDisabled()
+        .help("New Workspace (⌥⌘N)")
     }
 
     /// Pinned below the list so it stays put while the sections scroll.
