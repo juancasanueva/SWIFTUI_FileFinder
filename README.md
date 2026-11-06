@@ -58,6 +58,8 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | ⌃⌥⌘T | Open the folder in your external terminal |
 | ⌥⇧⌘E | Open the folder in your editor |
 
+On Mac keyboards the function keys control the Mac by default (F10 is Mute), so press fn with F2 and F5–F10, or turn on "Use F1, F2, etc. keys as standard function keys" in System Settings ▸ Keyboard. The entries in the function key bar are also buttons.
+
 These are the defaults. Menu shortcuts can be changed in Settings ▸ Keyboard (click a shortcut, then type the new one; Escape cancels) or in `~/.config/filefinder/keybindings.json` (`$XDG_CONFIG_HOME/filefinder/keybindings.json` when that is set). The file is created with every action on first launch, and edits to it apply while the app runs:
 
 ```json

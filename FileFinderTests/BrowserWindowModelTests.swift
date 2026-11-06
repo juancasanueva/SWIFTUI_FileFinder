@@ -176,6 +176,26 @@ struct BrowserWindowModelTests {
         #expect(window.active.renamingURL == created)
     }
 
+    @Test("F9 and F10 are off while a workspace is showing, and make no file there")
+    func newFileKeysOffInWorkspace() async throws {
+        let store = WorkspaceStore(fileURL: dir.url.appending(path: "store/workspaces.json"))
+        let workspace = store.create(named: "W")
+        let window = BrowserWindowModel(
+            defaultStart: dir.url, actions: FileActions(
+                clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())")))),
+            defaults: defaults, workspaces: store)
+        await window.active.openWorkspace(workspace.id)
+        #expect(window.active.isShowingWorkspace)
+
+        #expect(!window.canPerform(.makeMarkdownFile))
+        #expect(!window.canPerform(.makeTextFile))
+
+        await window.perform(.makeMarkdownFile)
+        await window.perform(.makeTextFile)
+        #expect(!FileManager.default.fileExists(atPath: dir.url.appending(path: "new.md").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.url.appending(path: "new.txt").path))
+    }
+
     @Test("Bar commands are available only when their action can run")
     func barAvailability() async throws {
         let a = try dir.file("a.txt")
