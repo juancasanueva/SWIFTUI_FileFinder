@@ -190,10 +190,11 @@ struct BrowserWindowModelTests {
         #expect(!window.canPerform(.makeMarkdownFile))
         #expect(!window.canPerform(.makeTextFile))
 
+        let before = try FileManager.default.subpathsOfDirectory(atPath: dir.url.path).sorted()
         await window.perform(.makeMarkdownFile)
         await window.perform(.makeTextFile)
-        #expect(!FileManager.default.fileExists(atPath: dir.url.appending(path: "new.md").path))
-        #expect(!FileManager.default.fileExists(atPath: dir.url.appending(path: "new.txt").path))
+        #expect(try FileManager.default.subpathsOfDirectory(atPath: dir.url.path).sorted() == before)
+        #expect(window.active.renamingURL == nil)
     }
 
     @Test("Bar commands are available only when their action can run")
