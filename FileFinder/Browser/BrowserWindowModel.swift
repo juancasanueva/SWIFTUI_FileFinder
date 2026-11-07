@@ -112,6 +112,8 @@ final class BrowserWindowModel {
     func focusPane(at index: Int) {
         guard panes.indices.contains(index) else { return }
         activeIndex = index
+        // Focus leaves the sidebar, even if it went away before it could report that.
+        isSidebarFocused = false
         active.focusRequest += 1
     }
 

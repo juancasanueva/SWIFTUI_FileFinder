@@ -77,6 +77,8 @@ struct SidebarView: View {
             // Leaving without Return drops the highlight back to the pane's location.
             if !focused { keyboardHighlight = nil }
         }
+        // Collapsing the sidebar may remove it without a focus change; don't leave the flag set.
+        .onDisappear { window.isSidebarFocused = false }
         .safeAreaInset(edge: .bottom, spacing: 0) { settingsButton }
         .navigationSplitViewColumnWidth(min: 170, ideal: 200)
         .task(id: volumeChanges) { await refresh() }

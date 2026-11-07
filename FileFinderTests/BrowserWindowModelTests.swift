@@ -118,6 +118,18 @@ struct BrowserWindowModelTests {
         #expect(window.activeIndex == 1)
     }
 
+    @Test("Focusing a pane clears a stale sidebar focus, so ⌥⌘← reaches the sidebar again")
+    func focusPaneClearsSidebarFocus() {
+        let window = makeWindow()
+        window.isSidebarFocused = true
+
+        window.focusPane(at: 0)
+        #expect(!window.isSidebarFocused)
+
+        window.focusLeft()
+        #expect(window.sidebarFocusRequest == 1)
+    }
+
     @Test("With one pane, ⌥⌘← focuses the sidebar and ⌥⌘→ returns to the pane")
     func focusChainSinglePane() {
         let window = makeWindow()
