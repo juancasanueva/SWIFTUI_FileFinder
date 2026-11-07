@@ -89,6 +89,52 @@ struct BrowserWindowModelTests {
         #expect(window.panes[0].focusRequest == leftRequests + 1)
     }
 
+    @Test("⌥⌘← moves from the right pane to the left one, then to the sidebar; ⌥⌘→ walks back")
+    func focusChainThroughSidebar() {
+        let window = makeWindow()
+        window.toggleSplit()
+        window.focusPane(at: 1)
+
+        window.focusLeft()
+        #expect(window.activeIndex == 0)
+        #expect(window.sidebarFocusRequest == 0)
+
+        window.focusLeft()
+        #expect(window.sidebarFocusRequest == 1)
+        #expect(window.activeIndex == 0)
+
+        // The sidebar reports its focus; ⌥⌘← there does nothing more.
+        window.isSidebarFocused = true
+        window.focusLeft()
+        #expect(window.sidebarFocusRequest == 1)
+
+        let leftRequests = window.panes[0].focusRequest
+        window.focusRight()
+        #expect(window.activeIndex == 0)
+        #expect(window.panes[0].focusRequest == leftRequests + 1)
+
+        window.isSidebarFocused = false
+        window.focusRight()
+        #expect(window.activeIndex == 1)
+    }
+
+    @Test("With one pane, ⌥⌘← focuses the sidebar and ⌥⌘→ returns to the pane")
+    func focusChainSinglePane() {
+        let window = makeWindow()
+        window.focusLeft()
+        #expect(window.sidebarFocusRequest == 1)
+
+        window.isSidebarFocused = true
+        let requests = window.panes[0].focusRequest
+        window.focusRight()
+        #expect(window.panes[0].focusRequest == requests + 1)
+
+        window.isSidebarFocused = false
+        window.focusRight()
+        #expect(window.activeIndex == 0)
+        #expect(window.panes[0].focusRequest == requests + 1)
+    }
+
     @Test("⌘U swaps the panes; the active pane stays active on its new side")
     func swapPanes() throws {
         let window = makeWindow()

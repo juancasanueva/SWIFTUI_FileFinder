@@ -48,7 +48,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | ⇧⌘P | Preview pane |
 | ⌘Z | Undo |
 | ⌘D | Split into two panes, or back to one (Settings ▸ General can open new windows with two panes) |
-| ⌥⌘← / ⌥⌘→ | Focus the left / right pane |
+| ⌥⌘← / ⌥⌘→ | Focus the left / right pane; from the left pane, ⌥⌘← goes on to the sidebar (↑/↓ to move, Return to open) and ⌥⌘→ comes back |
 | ⌘U | Swap panes |
 | F5 / F6 | Copy / move the selection to the other pane |
 | ⌥⌘N | New workspace |

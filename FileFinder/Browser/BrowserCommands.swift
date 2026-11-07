@@ -83,12 +83,13 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut(shortcut(.splitView))
                 .disabled(window == nil || isTyping)
             // Disabled while typing, so text fields keep their own ⌥⌘ arrow keys.
-            Button("Focus Left Pane") { window?.focusPane(at: 0) }
+            // From the left pane, Focus Left Pane goes on to the sidebar; Focus Right Pane comes back.
+            Button("Focus Left Pane") { window?.focusLeft() }
                 .keyboardShortcut(shortcut(.focusLeftPane))
-                .disabled(!(window?.isSplit ?? false) || isTyping)
-            Button("Focus Right Pane") { window?.focusPane(at: 1) }
+                .disabled(window == nil || isTyping)
+            Button("Focus Right Pane") { window?.focusRight() }
                 .keyboardShortcut(shortcut(.focusRightPane))
-                .disabled(!(window?.isSplit ?? false) || isTyping)
+                .disabled(!(window?.isSplit == true || window?.isSidebarFocused == true) || isTyping)
             Button("Swap Panes") { window?.swapPanes() }
                 .keyboardShortcut(shortcut(.swapPanes))
                 .disabled(!(window?.isSplit ?? false) || isTyping)

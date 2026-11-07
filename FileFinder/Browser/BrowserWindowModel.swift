@@ -115,6 +115,26 @@ final class BrowserWindowModel {
         active.focusRequest += 1
     }
 
+    /// Whether the sidebar has keyboard focus; the sidebar reports it.
+    var isSidebarFocused = false
+    /// Bumped to move keyboard focus to the sidebar.
+    private(set) var sidebarFocusRequest = 0
+
+    /// ⌥⌘←: from the right pane to the left one, and from the left pane to the sidebar.
+    func focusLeft() {
+        guard !isSidebarFocused else { return }
+        if activeIndex == 1 {
+            focusPane(at: 0)
+        } else {
+            sidebarFocusRequest += 1
+        }
+    }
+
+    /// ⌥⌘→: from the sidebar to the left pane, and from the left pane to the right one.
+    func focusRight() {
+        focusPane(at: isSidebarFocused ? 0 : 1)
+    }
+
     /// Swaps the panes' sides; the active pane stays active.
     func swapPanes() {
         guard isSplit else { return }

@@ -12,16 +12,37 @@ struct SidebarView: View {
 
     private var home: URL { FileManager.default.homeDirectoryForCurrentUser }
 
+    @FocusState private var isFocused: Bool
+    /// The row the arrow keys moved to; Return opens it. Nil shows the pane's own location.
+    @State private var keyboardHighlight: BrowserLocation?
+
+    /// A click opens the row at once; the arrow keys only move the highlight, so browsing the
+    /// sidebar by keyboard doesn't open every row on the way.
     private var selection: Binding<BrowserLocation?> {
         Binding(
-            get: { model.location },
+            get: { keyboardHighlight ?? model.location },
             set: { location in
-                switch location {
-                case .folder(let url): model.navigate(to: url)
-                case .workspace(let id): Task { await model.openWorkspace(id) }
-                case nil: break
+                if NSApp.currentEvent?.type == .keyDown {
+                    keyboardHighlight = location
+                } else {
+                    open(location)
                 }
             })
+    }
+
+    private func open(_ location: BrowserLocation?) {
+        keyboardHighlight = nil
+        switch location {
+        case .folder(let url): model.navigate(to: url)
+        case .workspace(let id): Task { await model.openWorkspace(id) }
+        case nil: break
+        }
+    }
+
+    private func handleReturn() -> KeyPress.Result {
+        guard let keyboardHighlight else { return .ignored }
+        open(keyboardHighlight)
+        return .handled
     }
 
     var body: some View {
@@ -48,6 +69,14 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .focused($isFocused)
+        .onKeyPress(.return, action: handleReturn)
+        .onChange(of: window.sidebarFocusRequest) { isFocused = true }
+        .onChange(of: isFocused) { _, focused in
+            window.isSidebarFocused = focused
+            // Leaving without Return drops the highlight back to the pane's location.
+            if !focused { keyboardHighlight = nil }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) { settingsButton }
         .navigationSplitViewColumnWidth(min: 170, ideal: 200)
         .task(id: volumeChanges) { await refresh() }
