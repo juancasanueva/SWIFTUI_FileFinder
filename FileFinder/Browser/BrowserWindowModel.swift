@@ -121,10 +121,19 @@ final class BrowserWindowModel {
     var isSidebarFocused = false
     /// Bumped to move keyboard focus to the sidebar.
     private(set) var sidebarFocusRequest = 0
+    /// Whether the sidebar column is showing; the window's split view reports it.
+    var isSidebarVisible = true {
+        didSet { if !isSidebarVisible { isSidebarFocused = false } }
+    }
+
+    /// Whether ⌥⌘← has somewhere to go: the left pane from the right one, or a showing sidebar.
+    var canFocusLeft: Bool {
+        !isSidebarFocused && (activeIndex == 1 || isSidebarVisible)
+    }
 
     /// ⌥⌘←: from the right pane to the left one, and from the left pane to the sidebar.
     func focusLeft() {
-        guard !isSidebarFocused else { return }
+        guard canFocusLeft else { return }
         if activeIndex == 1 {
             focusPane(at: 0)
         } else {

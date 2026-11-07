@@ -86,7 +86,7 @@ struct BrowserCommands: Commands {
             // From the left pane, Focus Left Pane goes on to the sidebar; Focus Right Pane comes back.
             Button("Focus Left Pane") { window?.focusLeft() }
                 .keyboardShortcut(shortcut(.focusLeftPane))
-                .disabled(window == nil || isTyping)
+                .disabled(!(window?.canFocusLeft ?? false) || isTyping)
             Button("Focus Right Pane") { window?.focusRight() }
                 .keyboardShortcut(shortcut(.focusRightPane))
                 .disabled(!(window?.isSplit == true || window?.isSidebarFocused == true) || isTyping)

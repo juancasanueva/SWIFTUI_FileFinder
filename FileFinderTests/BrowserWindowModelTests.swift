@@ -147,6 +147,46 @@ struct BrowserWindowModelTests {
         #expect(window.panes[0].focusRequest == requests + 1)
     }
 
+    @Test("With the sidebar hidden, ⌥⌘← from the left pane has nowhere to go and does nothing")
+    func focusLeftWithHiddenSidebar() {
+        let window = makeWindow()
+        window.isSidebarVisible = false
+        #expect(!window.canFocusLeft)
+        window.focusLeft()
+        #expect(window.sidebarFocusRequest == 0)
+
+        // The right pane can still move to the left one.
+        window.toggleSplit()
+        window.focusPane(at: 1)
+        #expect(window.canFocusLeft)
+        window.focusLeft()
+        #expect(window.activeIndex == 0)
+        #expect(!window.canFocusLeft)
+
+        window.isSidebarVisible = true
+        #expect(window.canFocusLeft)
+    }
+
+    @Test("In the sidebar, ⌥⌘← has nowhere to go, even when the right pane is active")
+    func focusLeftFromSidebar() {
+        let window = makeWindow()
+        window.toggleSplit()
+        window.focusPane(at: 1)
+        window.isSidebarFocused = true
+        #expect(!window.canFocusLeft)
+        window.focusLeft()
+        #expect(window.activeIndex == 1)
+        #expect(window.sidebarFocusRequest == 0)
+    }
+
+    @Test("Hiding the sidebar clears its focus")
+    func hidingSidebarClearsFocus() {
+        let window = makeWindow()
+        window.isSidebarFocused = true
+        window.isSidebarVisible = false
+        #expect(!window.isSidebarFocused)
+    }
+
     @Test("⌘U swaps the panes; the active pane stays active on its new side")
     func swapPanes() throws {
         let window = makeWindow()

@@ -32,7 +32,11 @@ private struct BrowserWindowContent: View {
 
     var body: some View {
         @Bindable var active = window.active
-        NavigationSplitView {
+        // The window model needs to know whether the sidebar is showing, for ⌥⌘←.
+        NavigationSplitView(columnVisibility: Binding(
+            get: { window.isSidebarVisible ? .all : .detailOnly },
+            set: { window.isSidebarVisible = $0 != .detailOnly }
+        )) {
             SidebarView(model: active, window: window)
         } detail: {
             VStack(spacing: 0) {
