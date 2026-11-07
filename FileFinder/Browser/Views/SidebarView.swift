@@ -13,35 +13,28 @@ struct SidebarView: View {
     private var home: URL { FileManager.default.homeDirectoryForCurrentUser }
 
     @FocusState private var isFocused: Bool
-    /// The row the arrow keys moved to; Return opens it. Nil shows the pane's own location.
-    @State private var keyboardHighlight: BrowserLocation?
+    @State private var highlight = SidebarHighlight()
 
-    /// A click opens the row at once; the arrow keys only move the highlight, so browsing the
-    /// sidebar by keyboard doesn't open every row on the way.
     private var selection: Binding<BrowserLocation?> {
         Binding(
-            get: { keyboardHighlight ?? model.location },
+            get: { highlight.shown(current: model.location) },
             set: { location in
-                if NSApp.currentEvent?.type == .keyDown {
-                    keyboardHighlight = location
-                } else {
-                    open(location)
-                }
+                // The selection changes in the middle of the event that caused it.
+                let byKeyboard = NSApp.currentEvent?.type == .keyDown
+                if let target = highlight.select(location, byKeyboard: byKeyboard) { open(target) }
             })
     }
 
-    private func open(_ location: BrowserLocation?) {
-        keyboardHighlight = nil
+    private func open(_ location: BrowserLocation) {
         switch location {
         case .folder(let url): model.navigate(to: url)
         case .workspace(let id): Task { await model.openWorkspace(id) }
-        case nil: break
         }
     }
 
     private func handleReturn() -> KeyPress.Result {
-        guard let keyboardHighlight else { return .ignored }
-        open(keyboardHighlight)
+        guard let target = highlight.pressReturn() else { return .ignored }
+        open(target)
         return .handled
     }
 
@@ -74,8 +67,7 @@ struct SidebarView: View {
         .onChange(of: window.sidebarFocusRequest) { isFocused = true }
         .onChange(of: isFocused) { _, focused in
             window.isSidebarFocused = focused
-            // Leaving without Return drops the highlight back to the pane's location.
-            if !focused { keyboardHighlight = nil }
+            if !focused { highlight.focusLost() }
         }
         // Collapsing the sidebar may remove it without a focus change; don't leave the flag set.
         .onDisappear { window.isSidebarFocused = false }

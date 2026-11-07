@@ -131,6 +131,9 @@ final class BrowserWindowModel {
         !isSidebarFocused && (activeIndex == 1 || isSidebarVisible)
     }
 
+    /// Whether ⌥⌘→ has somewhere to go: the left pane from the sidebar, or the right pane.
+    var canFocusRight: Bool { isSplit || isSidebarFocused }
+
     /// ⌥⌘←: from the right pane to the left one, and from the left pane to the sidebar.
     func focusLeft() {
         guard canFocusLeft else { return }

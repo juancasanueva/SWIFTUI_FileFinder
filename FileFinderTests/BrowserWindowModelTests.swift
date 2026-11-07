@@ -187,6 +187,17 @@ struct BrowserWindowModelTests {
         #expect(!window.isSidebarFocused)
     }
 
+    @Test("⌥⌘→ has somewhere to go only with two panes or from the sidebar")
+    func canFocusRight() {
+        let window = makeWindow()
+        #expect(!window.canFocusRight)
+        window.isSidebarFocused = true
+        #expect(window.canFocusRight)
+        window.isSidebarFocused = false
+        window.toggleSplit()
+        #expect(window.canFocusRight)
+    }
+
     @Test("⌘U swaps the panes; the active pane stays active on its new side")
     func swapPanes() throws {
         let window = makeWindow()

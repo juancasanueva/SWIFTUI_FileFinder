@@ -89,7 +89,7 @@ struct BrowserCommands: Commands {
                 .disabled(!(window?.canFocusLeft ?? false) || isTyping)
             Button("Focus Right Pane") { window?.focusRight() }
                 .keyboardShortcut(shortcut(.focusRightPane))
-                .disabled(!(window?.isSplit == true || window?.isSidebarFocused == true) || isTyping)
+                .disabled(!(window?.canFocusRight ?? false) || isTyping)
             Button("Swap Panes") { window?.swapPanes() }
                 .keyboardShortcut(shortcut(.swapPanes))
                 .disabled(!(window?.isSplit ?? false) || isTyping)
