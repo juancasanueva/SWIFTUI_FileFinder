@@ -86,11 +86,10 @@ struct PaneView: View {
         return .handled
     }
 
-    /// Return enters a selected folder; on a single file it starts renaming. F2 renames either.
+    /// Return enters a selected folder or opens a selected file. F2 renames either.
     private func handleReturn() -> KeyPress.Result {
         guard !model.isTyping, model.selection.count == 1 else { return .ignored }
-        if !model.enterSelectedFolder() { model.beginRename() }
-        return .handled
+        return model.openSelectedItem() ? .handled : .ignored
     }
 
     /// Backspace goes up to the enclosing folder.

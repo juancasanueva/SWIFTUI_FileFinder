@@ -151,6 +151,8 @@ final class BrowserModel {
     let developerTools: DeveloperTools
     /// Measures one folder; injectable so tests can control timing.
     @ObservationIgnored private let measurer: @Sendable (URL) async -> FolderStats?
+    /// Opens a file in its default app; injectable so tests don't launch apps.
+    @ObservationIgnored private let fileOpener: @MainActor (URL) -> Void
 
     init(
         start: URL,
@@ -161,6 +163,7 @@ final class BrowserModel {
         developerTools: DeveloperTools = .shared,
         deepRefreshInterval: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
+        fileOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
     ) {
         currentFolder = start.canonical
@@ -171,6 +174,7 @@ final class BrowserModel {
         // A restored workspace that no longer exists just leaves the pane on its folder.
         workspaceID = workspace.flatMap { workspaces.workspace($0) != nil ? $0 : nil }
         self.measurer = measurer
+        self.fileOpener = fileOpener
         self.pacer = DeepRefreshPacer(baseInterval: deepRefreshInterval)
         self.now = now
         showHidden = defaults.bool(forKey: Key.showHidden)
@@ -327,7 +331,7 @@ final class BrowserModel {
     func open(_ urls: some Collection<URL>) {
         let targets = items.filter { urls.contains($0.url) }
         for file in targets where !file.isNavigable {
-            NSWorkspace.shared.open(file.url)
+            fileOpener(file.url)
         }
         if let folder = targets.first(where: \.isNavigable) {
             navigate(to: folder.url)
@@ -343,6 +347,17 @@ final class BrowserModel {
               let folder = items.first(where: { $0.url == selection.first && $0.isNavigable })
         else { return false }
         navigate(to: folder.url)
+        return true
+    }
+
+    /// Return on one selected item: enters a folder, or opens a file in its default app.
+    /// Returns whether it did anything.
+    @discardableResult
+    func openSelectedItem() -> Bool {
+        guard selection.count == 1 else { return false }
+        if enterSelectedFolder() { return true }
+        guard let file = items.first(where: { $0.url == selection.first }) else { return false }
+        fileOpener(file.url)
         return true
     }
 
