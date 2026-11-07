@@ -21,7 +21,8 @@ struct BrowserModelTests {
         start: URL? = nil,
         deepRefreshInterval: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
-        measurer: (@Sendable (URL) async -> FolderStats?)? = nil
+        measurer: (@Sendable (URL) async -> FolderStats?)? = nil,
+        fileOpener: @escaping @MainActor (URL) -> Void = { _ in }
     ) -> BrowserModel {
         let actions = FileActions(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
@@ -29,11 +30,11 @@ struct BrowserModelTests {
         if let measurer {
             return BrowserModel(
                 start: start ?? dir.url, actions: actions, defaults: defaults,
-                deepRefreshInterval: deepRefreshInterval, now: now, measurer: measurer)
+                deepRefreshInterval: deepRefreshInterval, now: now, fileOpener: fileOpener, measurer: measurer)
         }
         return BrowserModel(
             start: start ?? dir.url, actions: actions, defaults: defaults,
-            deepRefreshInterval: deepRefreshInterval, now: now)
+            deepRefreshInterval: deepRefreshInterval, now: now, fileOpener: fileOpener)
     }
 
     // MARK: - History
@@ -86,6 +87,30 @@ struct BrowserModelTests {
         model.selection = [folder.canonical]
         #expect(model.enterSelectedFolder())
         #expect(model.currentFolder == folder.canonical)
+    }
+
+    @Test("Return opens the one selected file, enters a folder, and never starts renaming")
+    func openSelectedItem() async throws {
+        let folder = try dir.folder("folder")
+        let file = try dir.file("file.txt")
+        var opened: [URL] = []
+        let model = makeModel(fileOpener: { opened.append($0) })
+        await model.reload()
+
+        model.selection = [file.canonical]
+        #expect(model.openSelectedItem())
+        #expect(opened == [file.canonical])
+        #expect(model.renamingURL == nil)
+        #expect(model.currentFolder == dir.url.canonical)
+
+        model.selection = [folder.canonical, file.canonical]
+        #expect(!model.openSelectedItem())
+        #expect(opened == [file.canonical])
+
+        model.selection = [folder.canonical]
+        #expect(model.openSelectedItem())
+        #expect(model.currentFolder == folder.canonical)
+        #expect(opened == [file.canonical])
     }
 
     // MARK: - Listing
