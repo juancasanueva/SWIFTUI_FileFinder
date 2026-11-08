@@ -44,9 +44,21 @@ private struct ItemPreview: View {
     let model: BrowserModel
     let item: FileItem
 
-    var body: some View {
+    private var icon: some View {
         FileIconView(item: item, side: 220, preview: true)
             .frame(maxWidth: .infinity)
+    }
+
+    var body: some View {
+        // Text files show their contents where other files show a picture.
+        switch item.isNavigable ? nil : TextPreviewKind(url: item.url) {
+        case .markdown:
+            MarkdownDocumentView(model: model, url: item.url, fallback: AnyView(icon))
+        case .code(let language):
+            CodePreview(url: item.url, language: language, fallback: AnyView(icon))
+        case nil:
+            icon
+        }
         Text(item.name).font(.headline).textSelection(.enabled)
         Text(item.kind).foregroundStyle(.secondary)
         Divider()

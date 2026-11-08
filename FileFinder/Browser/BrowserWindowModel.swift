@@ -185,6 +185,7 @@ final class BrowserWindowModel {
         let source = active
         let urls = source.selectedURLs
         guard !urls.isEmpty else { return }
+        source.saveDocument(before: urls)
         // Into a workspace, F5 and F6 both just add the items: nothing is copied or moved.
         if let workspaceID = target.workspaceID {
             await target.addToWorkspace(urls, workspaceID)
