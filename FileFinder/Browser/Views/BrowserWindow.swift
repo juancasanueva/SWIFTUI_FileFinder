@@ -77,7 +77,24 @@ private struct BrowserWindowContent: View {
                 onSave: { name in Task { await window.finishNaming(name) } },
                 onCancel: window.cancelNaming)
         }
+        .overlay(alignment: .top) { paletteOverlay }
         .frame(minWidth: 720, minHeight: 420)
+    }
+
+    @ViewBuilder
+    private var paletteOverlay: some View {
+        if let palette = window.palette {
+            ZStack(alignment: .top) {
+                // A click outside the palette closes it.
+                Color.black.opacity(0.001)
+                    .onTapGesture { window.closePalette() }
+                CommandPaletteView(
+                    palette: palette,
+                    onActivate: { window.activatePalette(revealing: $0) },
+                    onClose: window.closePalette)
+                    .padding(.top, 56)
+            }
+        }
     }
 
     @ToolbarContentBuilder

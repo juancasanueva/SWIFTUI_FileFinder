@@ -42,6 +42,10 @@ final class BrowserWindowModel {
     @ObservationIgnored private let defaults: UserDefaults
     let workspaces: WorkspaceStore
     let terminal = TerminalPanelModel()
+    /// The ⌘K palette while it is open.
+    private(set) var palette: CommandPaletteModel?
+    @ObservationIgnored private let fileSearch: any FileSearching
+    @ObservationIgnored private let paletteHistory: PaletteHistory
 
     /// Settings ▸ General: a new window opens with two panes on its start folder. Restored windows keep their layout.
     static let twoPanesByDefaultKey = "openWithTwoPanes"
@@ -51,11 +55,14 @@ final class BrowserWindowModel {
         defaultStart: URL = BrowserModel.defaultStartFolder(),
         actions: FileActions = FileActions(),
         defaults: UserDefaults = .standard,
-        workspaces: WorkspaceStore = .shared
+        workspaces: WorkspaceStore = .shared,
+        fileSearch: any FileSearching = SpotlightFileSearch()
     ) {
         self.actions = actions
         self.defaults = defaults
         self.workspaces = workspaces
+        self.fileSearch = fileSearch
+        paletteHistory = PaletteHistory(defaults: defaults)
         let folders = (state?.folders ?? []).prefix(2).map { path -> URL in
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
@@ -247,6 +254,54 @@ final class BrowserWindowModel {
         workspaces.delete(id)
         for pane in panes where pane.workspaceID == id {
             await pane.reload()
+        }
+    }
+
+    // MARK: Command palette
+
+    var isShowingPalette: Bool { palette != nil }
+
+    /// ⌘K: opens the palette with the commands that can run now, or closes it.
+    func togglePalette(openSmartClean: @escaping () -> Void = {}) {
+        if isShowingPalette {
+            closePalette()
+            return
+        }
+        let runner = KeyActionRunner(browser: active, window: self, openSmartClean: openSmartClean, ignoresPalette: true)
+        let workspaceCommands = workspaces.workspaces.map { workspace in
+            PaletteCommand(id: "workspace:\(workspace.id)", title: "Open Workspace \u{201C}\(workspace.name)\u{201D}", shortcut: nil) {
+                [weak self] in Task { await self?.active.openWorkspace(workspace.id) }
+            }
+        }
+        palette = CommandPaletteModel(
+            commands: runner.paletteCommands() + workspaceCommands, search: fileSearch, history: paletteHistory
+        ) { [weak self] file, revealing in
+            self?.open(file, revealing: revealing)
+        }
+    }
+
+    /// Closes the palette and gives the keyboard back to the active pane.
+    func closePalette() {
+        guard isShowingPalette else { return }
+        palette = nil
+        active.focusRequest += 1
+    }
+
+    /// Return in the palette: closes it first, so a command such as Rename gets the keyboard,
+    /// then runs the highlighted item. `revealing` (⌘Return) shows a file in its folder.
+    func activatePalette(revealing: Bool = false) {
+        guard let palette else { return }
+        closePalette()
+        palette.activate(revealing: revealing)
+    }
+
+    private func open(_ file: PaletteFile, revealing: Bool) {
+        if revealing {
+            active.reveal(file.url)
+        } else if file.isDirectory {
+            active.navigate(to: file.url)
+        } else {
+            active.openFile(file.url)
         }
     }
 
