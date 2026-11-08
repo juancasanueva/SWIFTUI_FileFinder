@@ -57,6 +57,7 @@ struct BrowserCommands: Commands {
             Divider()
             item(.viewAsList, alwaysEnabled: true)
             item(.viewAsCards, alwaysEnabled: true)
+            item(.viewAsColumns, alwaysEnabled: true)
             Picker("Group By", selection: Binding(
                 get: { browser?.groupBy ?? .none },
                 set: { browser?.groupBy = $0 }

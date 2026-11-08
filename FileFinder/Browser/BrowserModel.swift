@@ -2,7 +2,7 @@ import AppKit
 import Observation
 
 enum BrowserViewMode: String, CaseIterable {
-    case list, cards
+    case list, cards, columns
 }
 
 enum IconSize: Int, CaseIterable {
@@ -72,6 +72,10 @@ final class BrowserModel {
     // MARK: Location and contents
 
     private(set) var currentFolder: URL
+    /// Where column view's first column is; see `ColumnPath`.
+    private(set) var columnRoot: URL
+    /// → in column view: select the first item once the folder it entered has loaded.
+    @ObservationIgnored private var selectsFirstAfterLoad = false
     /// Shown items in display order: group by group when grouped.
     private(set) var items: [FileItem] = []
     /// The shown groups; empty when not grouping.
@@ -176,6 +180,7 @@ final class BrowserModel {
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
     ) {
         currentFolder = start.canonical
+        columnRoot = start.canonical
         self.actions = actions
         self.defaults = defaults
         self.workspaces = workspaces
@@ -318,6 +323,7 @@ final class BrowserModel {
         switch location {
         case .folder(let folder):
             currentFolder = folder
+            columnRoot = ColumnPath.root(keeping: columnRoot, current: folder)
             workspaceID = nil
         case .workspace(let id):
             workspaceID = id
@@ -333,6 +339,7 @@ final class BrowserModel {
         quickLookURL = nil
         selectionCursor = nil
         selectionAnchor = nil
+        selectsFirstAfterLoad = false
         folderStats = [:]
         unmeasurableFolders = []
         measuring = []
@@ -364,6 +371,18 @@ final class BrowserModel {
               let folder = items.first(where: { $0.url == selection.first && $0.isNavigable })
         else { return false }
         navigate(to: folder.url)
+        return true
+    }
+
+    /// The folders column view shows, from its first column to the current folder.
+    var columnFolders: [URL] { ColumnPath.folders(root: columnRoot, current: currentFolder) }
+
+    /// → in column view: enters the one selected folder and selects its first item once it has
+    /// loaded. Returns whether it did.
+    @discardableResult
+    func enterSelectedFolderSelectingFirst() -> Bool {
+        guard enterSelectedFolder() else { return false }
+        selectsFirstAfterLoad = true
         return true
     }
 
@@ -506,6 +525,10 @@ final class BrowserModel {
             loadFailure = nil
             applySort()
             selection.formIntersection(listing.map(\.url))
+            if selectsFirstAfterLoad {
+                selectsFirstAfterLoad = false
+                if let first = items.first { selection = [first.url] }
+            }
             availableBytes = await Self.freeSpace(at: folder)
             await refreshGitStatus()
         } catch {
@@ -513,6 +536,7 @@ final class BrowserModel {
             rawItems = []
             items = []
             loadFailure = LoadFailure(error)
+            selectsFirstAfterLoad = false
         }
     }
 
