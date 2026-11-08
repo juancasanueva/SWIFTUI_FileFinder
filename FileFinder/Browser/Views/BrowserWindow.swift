@@ -40,18 +40,15 @@ private struct BrowserWindowContent: View {
             SidebarView(model: active, window: window)
         } detail: {
             VStack(spacing: 0) {
-                VSplitView {
+                TerminalSplit {
                     PaneSplit(panes: window.panes) { pane in
                         PaneView(
                             model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
                             onActivate: { window.activate(pane) })
                     }
-                    .frame(minHeight: 160)
-                    if let session = window.terminal.session {
-                        TerminalPanel(session: session, panel: window.terminal)
-                            .id(session.id)
-                            // VSplitView sizes a new pane by its minimum; drag the divider for more.
-                            .frame(minHeight: 200)
+                } bottom: {
+                    window.terminal.session.map { session in
+                        TerminalPanel(session: session, panel: window.terminal).id(session.id)
                     }
                 }
                 TransferBar(actions: window.actions)
