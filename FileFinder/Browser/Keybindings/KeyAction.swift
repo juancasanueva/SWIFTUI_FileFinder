@@ -12,7 +12,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     case splitView, focusLeftPane, focusRightPane, swapPanes, viewAsList, viewAsCards
     case biggerIcons, smallerIcons, togglePreview, toggleHiddenFiles
     // Go
-    case goBack, goForward, enclosingFolder, goHome, goDesktop, goDocuments, goDownloads, goToFolder
+    case goBack, goForward, enclosingFolder, goHome, goDesktop, goDocuments, goDownloads, goToFolder, commandPalette
 
     var id: String { rawValue }
 
@@ -28,7 +28,8 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
         case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
-        case .goBack, .goForward, .enclosingFolder, .goHome, .goDesktop, .goDocuments, .goDownloads, .goToFolder: .go
+        case .goBack, .goForward, .enclosingFolder, .goHome, .goDesktop, .goDocuments, .goDownloads, .goToFolder,
+             .commandPalette: .go
         }
     }
 
@@ -70,6 +71,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .goDocuments: "Documents"
         case .goDownloads: "Downloads"
         case .goToFolder: "Go to Folder"
+        case .commandPalette: "Command Palette"
         }
     }
 
@@ -111,6 +113,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .goDocuments: "cmd+shift+o"
         case .goDownloads: "cmd+alt+l"
         case .goToFolder: "cmd+l"
+        case .commandPalette: "cmd+k"
         }
         return text.flatMap(Shortcut.init)
     }

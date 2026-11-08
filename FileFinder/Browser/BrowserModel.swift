@@ -363,8 +363,18 @@ final class BrowserModel {
 
     /// Opens the folder an item really lives in, with the item selected.
     func showInEnclosingFolder(_ item: FileItem) {
-        navigate(to: item.url.deletingLastPathComponent())
-        selection = [item.url]
+        reveal(item.url)
+    }
+
+    /// Opens the folder `url` is in, with it selected.
+    func reveal(_ url: URL) {
+        navigate(to: url.deletingLastPathComponent())
+        selection = [url.canonical]
+    }
+
+    /// Opens a file in its default app.
+    func openFile(_ url: URL) {
+        fileOpener(url)
     }
 
     // MARK: Loading
