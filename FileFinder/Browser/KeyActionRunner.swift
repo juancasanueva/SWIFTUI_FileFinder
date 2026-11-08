@@ -25,6 +25,7 @@ struct KeyActionRunner {
         // Works while typing: the Markdown editor is a text field too.
         case .save: browser?.document?.isDirty == true
         case .rename: browser?.selection.count == 1 && !isTyping
+        case .compress: hasSelection && !isTyping && browser?.isShowingWorkspace != true
         case .tidyFolder: (browser?.canTidy ?? false) && !isTyping
         case .tidyDownloads: browser != nil && !isTyping
         case .smartClean: true
@@ -58,6 +59,7 @@ struct KeyActionRunner {
         case .open: browser?.openSelection()
         case .save: browser?.saveDocument()
         case .rename: browser?.beginRename()
+        case .compress: Task { await browser?.compressSelection() }
         case .tidyFolder: Task { await browser?.prepareTidy() }
         case .tidyDownloads: Task { await browser?.tidyDownloads() }
         case .smartClean: openSmartClean()
@@ -99,6 +101,7 @@ struct KeyActionRunner {
         switch action {
         case .moveToTrash: browser?.isShowingWorkspace == true ? "Remove from Workspace" : action.title
         case .splitView: window?.isSplit == true ? "Close Split View" : action.title
+        case .compress: Self.compressTitle(browser?.selectedURLs ?? [])
         case .togglePreview: browser?.showPreview == true ? "Hide Preview" : action.title
         case .toggleHiddenFiles: browser?.showHidden == true ? "Hide Hidden Files" : action.title
         case .openInEditor: (browser?.developerTools ?? .shared).openTitle(.editor)
@@ -127,6 +130,15 @@ struct KeyActionRunner {
         case .enclosingFolder: "Go to Enclosing Folder"
         case .goHome, .goDesktop, .goDocuments, .goDownloads: "Go to \(action.title)"
         default: title(action)
+        }
+    }
+
+    /// Finder's wording: Compress "name" for one item, Compress 3 Items for several.
+    static func compressTitle(_ urls: [URL]) -> String {
+        switch urls.count {
+        case 0: "Compress"
+        case 1: "Compress \u{201C}\(urls[0].lastPathComponent)\u{201D}"
+        default: "Compress \(urls.count) Items"
         }
     }
 

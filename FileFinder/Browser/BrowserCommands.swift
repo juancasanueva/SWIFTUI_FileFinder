@@ -20,6 +20,7 @@ struct BrowserCommands: Commands {
             item(.open)
             item(.save)
             item(.rename)
+            item(.compress)
             Divider()
             // Listed before the View menu, so it wins ⌥⌘T over Show/Hide Toolbar.
             item(.tidyFolder, title: "Tidy This Folder…")
