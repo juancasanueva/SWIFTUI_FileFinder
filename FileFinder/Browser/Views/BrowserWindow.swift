@@ -140,6 +140,7 @@ private struct BrowserWindowContent: View {
             Picker("View", selection: Bindable(active).viewMode) {
                 Label("List", systemImage: "list.bullet").tag(BrowserViewMode.list)
                 Label("Cards", systemImage: "square.grid.2x2").tag(BrowserViewMode.cards)
+                Label("Columns", systemImage: "rectangle.split.3x1").tag(BrowserViewMode.columns)
             }
             .pickerStyle(.segmented)
         }

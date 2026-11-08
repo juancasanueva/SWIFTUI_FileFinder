@@ -9,7 +9,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
     // View
-    case splitView, focusLeftPane, focusRightPane, swapPanes, viewAsList, viewAsCards
+    case splitView, focusLeftPane, focusRightPane, swapPanes, viewAsList, viewAsCards, viewAsColumns
     case biggerIcons, smallerIcons, togglePreview, toggleHiddenFiles
     // Go
     case goBack, goForward, enclosingFolder, goHome, goDesktop, goDocuments, goDownloads, goToFolder, commandPalette
@@ -26,7 +26,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .newFolder, .newWorkspace, .open, .save, .rename, .compress, .tidyFolder, .tidyDownloads, .smartClean,
              .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
-        case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards,
+        case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards, .viewAsColumns,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
         case .goBack, .goForward, .enclosingFolder, .goHome, .goDesktop, .goDocuments, .goDownloads, .goToFolder,
              .commandPalette: .go
@@ -61,6 +61,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .swapPanes: "Swap Panes"
         case .viewAsList: "as List"
         case .viewAsCards: "as Cards"
+        case .viewAsColumns: "as Columns"
         case .biggerIcons: "Bigger Icons"
         case .smallerIcons: "Smaller Icons"
         case .togglePreview: "Show Preview"
@@ -104,6 +105,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .swapPanes: "cmd+u"
         case .viewAsList: "cmd+1"
         case .viewAsCards: "cmd+2"
+        case .viewAsColumns: "cmd+3"
         case .biggerIcons: "cmd+plus"
         case .smallerIcons: "cmd+-"
         case .togglePreview: "cmd+shift+p"

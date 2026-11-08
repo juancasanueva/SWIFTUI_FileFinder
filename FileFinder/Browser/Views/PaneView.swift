@@ -76,6 +76,9 @@ struct PaneView: View {
             switch model.viewMode {
             case .list: FileListView(model: model)
             case .cards: FileGridView(model: model)
+            // A workspace gathers items from many folders, so it has no columns to show.
+            case .columns where model.isShowingWorkspace: FileListView(model: model)
+            case .columns: ColumnBrowserView(model: model)
             }
         }
     }

@@ -41,7 +41,7 @@ struct KeyActionRunner {
         case .focusLeftPane: (window?.canFocusLeft ?? false) && !isTyping
         case .focusRightPane: (window?.canFocusRight ?? false) && !isTyping
         case .swapPanes: (window?.isSplit ?? false) && !isTyping
-        case .viewAsList, .viewAsCards, .togglePreview, .toggleHiddenFiles: browser != nil
+        case .viewAsList, .viewAsCards, .viewAsColumns, .togglePreview, .toggleHiddenFiles: browser != nil
         case .biggerIcons: browser?.iconSize.bigger != nil
         case .smallerIcons: browser?.iconSize.smaller != nil
         case .goBack: browser?.canGoBack ?? false
@@ -80,6 +80,7 @@ struct KeyActionRunner {
         case .swapPanes: window?.swapPanes()
         case .viewAsList: browser?.viewMode = .list
         case .viewAsCards: browser?.viewMode = .cards
+        case .viewAsColumns: browser?.viewMode = .columns
         case .biggerIcons: if let next = browser?.iconSize.bigger { browser?.iconSize = next }
         case .smallerIcons: if let next = browser?.iconSize.smaller { browser?.iconSize = next }
         case .togglePreview: browser?.showPreview.toggle()
@@ -125,6 +126,7 @@ struct KeyActionRunner {
         switch action {
         case .viewAsList: "View as List"
         case .viewAsCards: "View as Cards"
+        case .viewAsColumns: "View as Columns"
         case .goBack: "Go Back"
         case .goForward: "Go Forward"
         case .enclosingFolder: "Go to Enclosing Folder"
