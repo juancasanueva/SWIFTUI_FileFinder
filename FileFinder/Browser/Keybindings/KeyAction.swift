@@ -4,7 +4,7 @@ import Foundation
 /// keybindings.json.
 nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // File
-    case newFolder, newWorkspace, open, rename, tidyFolder, tidyDownloads, smartClean
+    case newFolder, newWorkspace, open, save, rename, tidyFolder, tidyDownloads, smartClean
     case openInTerminal, openInExternalTerminal, openInEditor, copyToOtherPane, moveToOtherPane, moveToTrash
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
@@ -23,7 +23,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
 
     var menu: Menu {
         switch self {
-        case .newFolder, .newWorkspace, .open, .rename, .tidyFolder, .tidyDownloads, .smartClean,
+        case .newFolder, .newWorkspace, .open, .save, .rename, .tidyFolder, .tidyDownloads, .smartClean,
              .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
         case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards,
@@ -38,6 +38,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .newFolder: "New Folder"
         case .newWorkspace: "New Workspace"
         case .open: "Open"
+        case .save: "Save"
         case .rename: "Rename"
         case .tidyFolder: "Tidy This Folder"
         case .tidyDownloads: "Tidy Downloads"
@@ -81,6 +82,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .newFolder: "cmd+shift+n"
         case .newWorkspace: "cmd+alt+n"
         case .open: "cmd+o"
+        case .save: "cmd+s"
         case .rename: "f2"
         case .tidyFolder: "cmd+alt+t"
         case .tidyDownloads, .smartClean: nil

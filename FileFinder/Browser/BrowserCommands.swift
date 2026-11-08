@@ -18,6 +18,7 @@ struct BrowserCommands: Commands {
             item(.newFolder)
             item(.newWorkspace, title: "New Workspace…")
             item(.open)
+            item(.save)
             item(.rename)
             Divider()
             // Listed before the View menu, so it wins ⌥⌘T over Show/Hide Toolbar.

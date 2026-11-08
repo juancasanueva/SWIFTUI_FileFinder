@@ -109,7 +109,10 @@ final class BrowserModel {
 
     // MARK: Interaction state
 
-    var selection: Set<URL> = []
+    var selection: Set<URL> = [] {
+        // The Markdown file being edited closes, saving its edits, when it stops being the selection.
+        didSet { if let document, Set(selection.map(\.canonical)) != [document.url] { closeDocument() } }
+    }
     var renamingURL: URL?
     var isEditingPath = false
     var quickLookURL: URL?
@@ -137,7 +140,12 @@ final class BrowserModel {
     var showHidden: Bool { didSet { defaults.set(showHidden, forKey: Key.showHidden) } }
     var viewMode: BrowserViewMode { didSet { defaults.set(viewMode.rawValue, forKey: Key.viewMode) } }
     var iconSize: IconSize { didSet { defaults.set(iconSize.rawValue, forKey: Key.iconSize) } }
-    var showPreview: Bool { didSet { defaults.set(showPreview, forKey: Key.showPreview) } }
+    var showPreview: Bool {
+        didSet {
+            defaults.set(showPreview, forKey: Key.showPreview)
+            if !showPreview { closeDocument() }
+        }
+    }
     /// View-only: grouping never moves anything on disk.
     var groupBy: GroupBy {
         didSet {
@@ -164,6 +172,7 @@ final class BrowserModel {
         deepRefreshInterval: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         fileOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        recoveryFolder: URL = TextDocument.defaultRecoveryFolder,
         measurer: @escaping @Sendable (URL) async -> FolderStats? = { await BrowserModel.measure($0) }
     ) {
         currentFolder = start.canonical
@@ -171,6 +180,7 @@ final class BrowserModel {
         self.defaults = defaults
         self.workspaces = workspaces
         self.developerTools = developerTools
+        self.recoveryFolder = recoveryFolder
         // A restored workspace that no longer exists just leaves the pane on its folder.
         workspaceID = workspace.flatMap { workspaces.workspace($0) != nil ? $0 : nil }
         self.measurer = measurer
@@ -183,6 +193,13 @@ final class BrowserModel {
         showPreview = defaults.bool(forKey: Key.showPreview)
         groupBy = GroupBy(rawValue: defaults.string(forKey: Key.groupBy) ?? "") ?? .none
         actions.onBackgroundError = { [weak self] message in self?.alertMessage = message }
+        // Quitting may not close windows first: save the Markdown file being edited now.
+        // No queue, so it runs before the app exits.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { _ = self?.closeDocument() }
+        }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: defaults, queue: nil
         ) { [weak self] _ in
@@ -375,6 +392,56 @@ final class BrowserModel {
     /// Opens a file in its default app.
     func openFile(_ url: URL) {
         fileOpener(url)
+    }
+
+    // MARK: Markdown editing
+
+    /// The Markdown file the preview pane edits; `nil` when it shows something else.
+    private(set) var document: TextDocument?
+    @ObservationIgnored private var terminationObserver: (any NSObjectProtocol)?
+    /// Where unsaved edits go when they can't be written next to their file.
+    @ObservationIgnored private let recoveryFolder: URL
+
+    /// Opens a Markdown file for editing in the preview pane, saving the one open before.
+    /// A file that can't be read for editing (too big, not UTF-8) just isn't opened.
+    func openDocument(_ url: URL) {
+        guard document?.url != url.canonical, closeDocument() else { return }
+        document = try? TextDocument(url: url, recoveryFolder: recoveryFolder)
+    }
+
+    /// Closes the open Markdown file, saving its edits. Edits are never dropped: when the file
+    /// changed on disk (or was moved away) they go to a copy next to it, and when nothing can be
+    /// written the file stays open with its edits. Returns whether it closed.
+    @discardableResult
+    func closeDocument() -> Bool {
+        guard let document else { return true }
+        if document.isDirty, !document.save() {
+            let name = "\u{201C}\(document.url.lastPathComponent)\u{201D}"
+            if let copy = document.saveRecoveryCopy() {
+                let place = copy.deletingLastPathComponent() == document.url.deletingLastPathComponent()
+                    ? "next to it" : "in \(copy.deletingLastPathComponent().path)"
+                alertMessage = "\(name) couldn't be saved (it changed on disk, was moved, or can't be written), "
+                    + "so your edits were saved \(place) as \u{201C}\(copy.lastPathComponent)\u{201D}."
+            } else {
+                alertMessage = "Your changes to \(name) couldn't be saved: \(document.errorMessage ?? "the file changed on disk")."
+                    + " They're kept until you select it again."
+                return false
+            }
+        }
+        self.document = nil
+        return true
+    }
+
+    /// Saves the open Markdown file first when an operation is about to rename, move, copy or
+    /// trash it, so the edits travel with it.
+    func saveDocument(before urls: some Collection<URL>) {
+        guard let document, document.isDirty, urls.contains(where: { $0.canonical == document.url }) else { return }
+        document.save()
+    }
+
+    /// ⌘S: saves the open Markdown file. A conflict shows in the preview pane.
+    func saveDocument() {
+        document?.save()
     }
 
     // MARK: Loading
@@ -729,6 +796,7 @@ final class BrowserModel {
     func commitRename(_ item: FileItem, to newName: String) async {
         guard renamingURL == item.url else { return }
         renamingURL = nil
+        saveDocument(before: [item.url])
         do {
             let renamed = try await actions.rename(item.url, to: newName)
             selection = [renamed.canonical]
@@ -995,6 +1063,7 @@ final class BrowserModel {
     /// The window is going away: release any operation waiting on a conflict answer, so the
     /// shared queue isn't blocked forever.
     func windowWillClose() {
+        closeDocument()
         isClosed = true
         if pendingConflict != nil {
             answerConflict(.skipAll)
@@ -1013,6 +1082,7 @@ final class BrowserModel {
         if isShowingWorkspace { return await removeSelectionFromWorkspace() }
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
+        saveDocument(before: urls)
         await perform { try await actions.trash(urls) }
     }
 

@@ -22,6 +22,8 @@ struct KeyActionRunner {
         case .newFolder: browser != nil && !isTyping && browser?.isShowingWorkspace != true
         case .newWorkspace: window != nil && !isTyping
         case .open: hasSelection && !isTyping
+        // Works while typing: the Markdown editor is a text field too.
+        case .save: browser?.document?.isDirty == true
         case .rename: browser?.selection.count == 1 && !isTyping
         case .tidyFolder: (browser?.canTidy ?? false) && !isTyping
         case .tidyDownloads: browser != nil && !isTyping
@@ -54,6 +56,7 @@ struct KeyActionRunner {
         case .newFolder: Task { await browser?.newFolder() }
         case .newWorkspace: window?.requestNewWorkspace()
         case .open: browser?.openSelection()
+        case .save: browser?.saveDocument()
         case .rename: browser?.beginRename()
         case .tidyFolder: Task { await browser?.prepareTidy() }
         case .tidyDownloads: Task { await browser?.tidyDownloads() }
