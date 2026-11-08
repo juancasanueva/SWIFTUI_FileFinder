@@ -838,6 +838,22 @@ final class BrowserModel {
         await createAndRename { try await $0.createFolder(in: $1) }
     }
 
+    /// Compress: zips the selection into this folder and selects the archive.
+    func compressSelection() async {
+        guard !isShowingWorkspace else { return }
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        saveDocument(before: urls)
+        let folder = currentFolder
+        do {
+            let archive = try await actions.compress(urls, in: folder)
+            await reload()
+            if folder == currentFolder { selection = [archive.canonical] }
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+    }
+
     /// Creates an empty new.md here, selects it and starts renaming it.
     func newMarkdownFile() async {
         await createAndRename { try await $0.createMarkdownFile(in: $1) }

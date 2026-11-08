@@ -341,6 +341,83 @@ final class FileActions {
         }
     }
 
+    // MARK: - Compress
+
+    /// Zips `urls` (all in `folder`) into one archive in `folder`, as Finder's Compress does:
+    /// "name.zip" for one item, "Archive.zip" ("Archive 2.zip", …) for several. The originals
+    /// stay. Undo moves the archive to the Trash; redo makes it again.
+    @discardableResult
+    func compress(_ urls: [URL], in folder: URL) async throws -> URL {
+        try await serialized {
+            let name = urls.count == 1 ? urls[0].lastPathComponent + ".zip" : "Archive.zip"
+            let archive = Self.uniqueDestination(
+                for: folder.appendingPathComponent(name), in: folder, copyStyle: false)
+            try await Self.performCompress(urls, to: archive)
+            let inTrash = await Self.trashNeeds([FileTransfer(from: archive, to: archive)], trash: self.trashFolder).undo
+            self.registerCompressUndo(urls, archive, inTrash: inTrash)
+            return archive
+        }
+    }
+
+    private func registerCompressUndo(_ sources: [URL], _ archive: URL, inTrash: Bool) {
+        registerUndo("Compress", target: inTrash ? trashUndoTarget : self) { actions in
+            actions.registerRecompressUndo(sources, archive, inTrash: inTrash)
+            let trasher = actions.trasher
+            actions.enqueue { await Self.performTrashArchive(archive, trasher: trasher) }
+        }
+    }
+
+    private func registerRecompressUndo(_ sources: [URL], _ archive: URL, inTrash: Bool) {
+        registerUndo("Compress") { actions in
+            actions.registerCompressUndo(sources, archive, inTrash: inTrash)
+            actions.enqueue {
+                do {
+                    try await Self.performCompress(sources, to: archive)
+                    return BatchResult()
+                } catch {
+                    return BatchResult(error: error)
+                }
+            }
+        }
+    }
+
+    /// Runs /usr/bin/zip from the items' folder, so the archive holds them by name. Symlinks stay
+    /// links (-y) and Finder's .DS_Store files are left out.
+    @concurrent private nonisolated static func performCompress(_ sources: [URL], to archive: URL) async throws {
+        guard let folder = sources.first?.deletingLastPathComponent() else { return }
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/zip")
+        process.currentDirectoryURL = folder
+        process.arguments = ["-r", "-y", "-q", archive.path] + sources.map(\.lastPathComponent) + ["-x", "*.DS_Store"]
+        let errors = Pipe()
+        process.standardError = errors
+        process.standardOutput = FileHandle.nullDevice
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            process.terminationHandler = { _ in continuation.resume() }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+        guard process.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(at: archive)
+            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            throw CompressError(name: archive.lastPathComponent, details: message)
+        }
+    }
+
+    @concurrent private nonisolated static func performTrashArchive(_ archive: URL, trasher: Trasher) async -> BatchResult {
+        guard FileManager.default.fileExists(atPath: archive.path) else { return BatchResult() }
+        do {
+            _ = try trasher(archive)
+            return BatchResult()
+        } catch {
+            return BatchResult(error: error)
+        }
+    }
+
     // MARK: - Tidy
 
     /// Moves each group's files into its kind folder, creating missing folders, as one undo
@@ -1278,5 +1355,15 @@ final class FileActions {
             if isFree(url) { return url }
             index += 1
         }
+    }
+}
+
+/// zip failed; `details` is what it printed.
+nonisolated struct CompressError: LocalizedError {
+    let name: String
+    let details: String
+    var errorDescription: String? {
+        let reason = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\u{201C}\(name)\u{201D} couldn't be created." + (reason.isEmpty ? "" : " \(reason)")
     }
 }

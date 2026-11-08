@@ -145,6 +145,10 @@ struct FileContextMenu: View {
                     Task { await model.removeSelectionFromWorkspace() }
                 }
             } else {
+                Button(KeyActionRunner.compressTitle(model.items.map(\.url).filter(urls.contains))) {
+                    model.selection = urls
+                    Task { await model.compressSelection() }
+                }
                 AddToWorkspaceMenu(model: model, urls: urls)
                 Button("Move to Trash") {
                     model.selection = urls
