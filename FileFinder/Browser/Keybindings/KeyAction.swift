@@ -9,7 +9,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
     // View
-    case splitView, focusLeftPane, focusRightPane, swapPanes, viewAsList, viewAsCards, viewAsColumns
+    case splitView, focusLeftPane, focusRightPane, focusTerminal, focusFiles, swapPanes, viewAsList, viewAsCards, viewAsColumns
     case biggerIcons, smallerIcons, togglePreview, toggleHiddenFiles
     // Go
     case goBack, goForward, enclosingFolder, goHome, goDesktop, goDocuments, goDownloads, goToFolder, commandPalette
@@ -26,7 +26,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .newFolder, .newWorkspace, .open, .save, .rename, .compress, .tidyFolder, .tidyDownloads, .smartClean,
              .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
-        case .splitView, .focusLeftPane, .focusRightPane, .swapPanes, .viewAsList, .viewAsCards, .viewAsColumns,
+        case .splitView, .focusLeftPane, .focusRightPane, .focusTerminal, .focusFiles, .swapPanes, .viewAsList, .viewAsCards, .viewAsColumns,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
         case .goBack, .goForward, .enclosingFolder, .goHome, .goDesktop, .goDocuments, .goDownloads, .goToFolder,
              .commandPalette: .go
@@ -58,6 +58,8 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .splitView: "Split View"
         case .focusLeftPane: "Focus Left Pane"
         case .focusRightPane: "Focus Right Pane"
+        case .focusTerminal: "Focus Terminal"
+        case .focusFiles: "Focus Files"
         case .swapPanes: "Swap Panes"
         case .viewAsList: "as List"
         case .viewAsCards: "as Cards"
@@ -102,6 +104,8 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .splitView: "cmd+d"
         case .focusLeftPane: "cmd+alt+left"
         case .focusRightPane: "cmd+alt+right"
+        case .focusTerminal: "cmd+alt+down"
+        case .focusFiles: "cmd+alt+up"
         case .swapPanes: "cmd+u"
         case .viewAsList: "cmd+1"
         case .viewAsCards: "cmd+2"

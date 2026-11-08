@@ -133,27 +133,31 @@ final class BrowserWindowModel {
         didSet { if !isSidebarVisible { isSidebarFocused = false } }
     }
 
-    /// Whether ⌥⌘← has somewhere to go: the left pane from the right one, or a showing sidebar.
+    /// Whether ⌥⌘← has somewhere to go: the left pane from the right one or the terminal, or a
+    /// showing sidebar.
     var canFocusLeft: Bool {
-        !isSidebarFocused && (activeIndex == 1 || isSidebarVisible)
+        terminal.isFocused || (!isSidebarFocused && (activeIndex == 1 || isSidebarVisible))
     }
 
     /// Whether ⌥⌘→ has somewhere to go: the left pane from the sidebar, or the right pane.
-    var canFocusRight: Bool { isSplit || isSidebarFocused }
+    var canFocusRight: Bool { isSplit || (isSidebarFocused && !terminal.isFocused) }
 
-    /// ⌥⌘←: from the right pane to the left one, and from the left pane to the sidebar.
+    /// ⌥⌘←: from the right pane to the left one, and from the left pane to the sidebar. From
+    /// the terminal it goes up to the left pane, which sits above it.
     func focusLeft() {
         guard canFocusLeft else { return }
-        if activeIndex == 1 {
+        if terminal.isFocused || activeIndex == 1 {
             focusPane(at: 0)
         } else {
             sidebarFocusRequest += 1
         }
     }
 
-    /// ⌥⌘→: from the sidebar to the left pane, and from the left pane to the right one.
+    /// ⌥⌘→: from the sidebar to the left pane, and from the left pane or the terminal to the
+    /// right one.
     func focusRight() {
-        focusPane(at: isSidebarFocused ? 0 : 1)
+        guard canFocusRight else { return }
+        focusPane(at: isSidebarFocused && !terminal.isFocused ? 0 : 1)
     }
 
     /// Swaps the panes' sides; the active pane stays active.

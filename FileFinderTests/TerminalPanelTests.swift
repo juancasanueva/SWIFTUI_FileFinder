@@ -200,3 +200,109 @@ struct TerminalPanelTests {
         #expect(window.terminal.session == nil)
     }
 }
+
+@MainActor
+@Suite("Terminal focus (⌥⌘↓ / ⌥⌘↑)")
+struct TerminalFocusTests {
+    let dir: TemporaryDirectory
+    let defaults: UserDefaults
+
+    init() throws {
+        dir = try TemporaryDirectory()
+        defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
+    }
+
+    private func makeWindow() -> BrowserWindowModel {
+        BrowserWindowModel(restoring: nil, defaultStart: dir.url, defaults: defaults)
+    }
+
+    @Test("⌥⌘↓ moves focus into the terminal only while it is open and not focused")
+    func focusTerminal() {
+        let window = makeWindow()
+        let runner = { KeyActionRunner(browser: window.active, window: window) }
+        #expect(!runner().canPerform(.focusTerminal))
+
+        window.toggleTerminal()
+        #expect(runner().canPerform(.focusTerminal))
+        let before = window.terminal.focusRequest
+        runner().perform(.focusTerminal)
+        #expect(window.terminal.focusRequest == before + 1)
+
+        window.terminal.isFocused = true
+        #expect(!runner().canPerform(.focusTerminal))
+    }
+
+    @Test("⌥⌘↑ from the terminal goes back to the pane focus came from")
+    func backToPane() {
+        let window = makeWindow()
+        window.toggleSplit()
+        window.toggleTerminal()
+        window.focusPane(at: 1)
+        let runner = { KeyActionRunner(browser: window.active, window: window) }
+        #expect(!runner().canPerform(.focusFiles))  // already in the files
+
+        window.focusTerminal()
+        window.terminal.isFocused = true
+        #expect(runner().canPerform(.focusFiles))
+        let right = window.panes[1]
+        let before = right.focusRequest
+        runner().perform(.focusFiles)
+        #expect(window.activeIndex == 1)
+        #expect(right.focusRequest == before + 1)
+    }
+
+    @Test("Closing the terminal while it has focus forgets the focus")
+    func closeClearsFocus() {
+        let window = makeWindow()
+        window.toggleTerminal()
+        window.terminal.isFocused = true
+        window.toggleTerminal()
+        #expect(!window.terminal.isFocused)
+
+        window.toggleTerminal()
+        window.terminal.isFocused = true
+        window.terminal.close()
+        #expect(!window.terminal.isFocused)
+    }
+
+    @Test("From the terminal, ⌥⌘← goes to the left pane and ⌥⌘→ to the right one")
+    func sidewaysFromTerminal() {
+        let window = makeWindow()
+        window.toggleSplit()
+        window.toggleTerminal()
+        let runner = { KeyActionRunner(browser: window.active, window: window) }
+
+        // The left pane was active: ⌥⌘← lands on it rather than skipping on to the sidebar.
+        window.focusPane(at: 0)
+        window.terminal.isFocused = true
+        let left = window.panes[0]
+        let leftBefore = left.focusRequest
+        #expect(runner().canPerform(.focusLeftPane))
+        runner().perform(.focusLeftPane)
+        #expect(window.activeIndex == 0)
+        #expect(left.focusRequest == leftBefore + 1)
+
+        window.terminal.isFocused = true
+        #expect(runner().canPerform(.focusRightPane))
+        runner().perform(.focusRightPane)
+        #expect(window.activeIndex == 1)
+    }
+
+    @Test("From the terminal with one pane, ⌥⌘← goes to it and ⌥⌘→ has nowhere to go")
+    func sidewaysFromTerminalOnePane() {
+        let window = makeWindow()
+        window.toggleTerminal()
+        window.terminal.isFocused = true
+        let runner = { KeyActionRunner(browser: window.active, window: window) }
+        #expect(!runner().canPerform(.focusRightPane))
+        let before = window.active.focusRequest
+        runner().perform(.focusLeftPane)
+        #expect(window.active.focusRequest == before + 1)
+    }
+
+    @Test("The default keys are ⌥⌘↓ and ⌥⌘↑")
+    func defaultKeys() {
+        #expect(KeyAction.focusTerminal.defaultShortcut?.text == "cmd+alt+down")
+        #expect(KeyAction.focusFiles.defaultShortcut?.text == "cmd+alt+up")
+    }
+}
