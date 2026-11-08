@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
     let model: BrowserModel
     let window: BrowserWindowModel
+    var favoriteStore: FavoriteStore = .shared
     @Environment(\.openWindow) private var openWindow
     @State private var favorites: [SidebarItem] = []
     @State private var locations: [SidebarItem] = []
@@ -48,6 +49,13 @@ struct SidebarView: View {
             }
             Section("Favorites") {
                 ForEach(favorites) { row($0) }
+                ForEach(favoriteStore.items) { item in
+                    row(item)
+                        .contextMenu {
+                            Button("Remove from Favorites") { favoriteStore.remove(item.url) }
+                        }
+                }
+                addFavoriteButton
             }
             Section("Locations") {
                 ForEach(locations) { row($0) }
@@ -84,8 +92,32 @@ struct SidebarView: View {
 
     /// Sits below the last workspace, outlined so it reads as an action rather than a row.
     private var newWorkspaceButton: some View {
-        Button { window.requestNewWorkspace() } label: {
-            Label("New Workspace", systemImage: "plus.circle")
+        sectionButton("New Workspace", help: "New Workspace (⌥⌘N)") { window.requestNewWorkspace() }
+    }
+
+    /// Sits below the last favorite; picks one or more folders to add.
+    private var addFavoriteButton: some View {
+        sectionButton("Add Favorite", help: "Add a folder to Favorites; right-click an added folder to remove it") {
+            chooseFavorites()
+        }
+    }
+
+    private func chooseFavorites() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        panel.message = "Choose folders to add to Favorites"
+        if !model.isShowingWorkspace { panel.directoryURL = model.currentFolder }
+        guard panel.runModal() == .OK else { return }
+        favoriteStore.add(panel.urls)
+    }
+
+    /// An outlined action at the end of a sidebar section.
+    private func sectionButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: "plus.circle")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
@@ -99,7 +131,7 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         .padding(.vertical, 4)
         .selectionDisabled()
-        .help("New Workspace (⌥⌘N)")
+        .help(help)
     }
 
     /// Pinned below the list so it stays put while the sections scroll.
