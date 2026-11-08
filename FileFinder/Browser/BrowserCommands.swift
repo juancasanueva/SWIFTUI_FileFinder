@@ -53,6 +53,8 @@ struct BrowserCommands: Commands {
             // From the left pane, Focus Left Pane goes on to the sidebar; Focus Right Pane comes back.
             item(.focusLeftPane)
             item(.focusRightPane)
+            item(.focusTerminal)
+            item(.focusFiles)
             item(.swapPanes)
             Divider()
             item(.viewAsList, alwaysEnabled: true)

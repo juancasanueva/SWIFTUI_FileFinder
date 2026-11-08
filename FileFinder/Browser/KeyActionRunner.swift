@@ -40,6 +40,9 @@ struct KeyActionRunner {
         // Disabled while typing, so text fields keep their own ⌥⌘ arrow keys.
         case .focusLeftPane: (window?.canFocusLeft ?? false) && !isTyping
         case .focusRightPane: (window?.canFocusRight ?? false) && !isTyping
+        case .focusTerminal: (window?.canFocusTerminal ?? false) && !isTyping
+        // Runs from inside the shell, which is not a text field (see `TerminalPanel`).
+        case .focusFiles: window?.canFocusFiles ?? false
         case .swapPanes: (window?.isSplit ?? false) && !isTyping
         case .viewAsList, .viewAsCards, .viewAsColumns, .togglePreview, .toggleHiddenFiles: browser != nil
         case .biggerIcons: browser?.iconSize.bigger != nil
@@ -77,6 +80,8 @@ struct KeyActionRunner {
         case .splitView: window?.toggleSplit()
         case .focusLeftPane: window?.focusLeft()
         case .focusRightPane: window?.focusRight()
+        case .focusTerminal: window?.focusTerminal()
+        case .focusFiles: window?.focusFiles()
         case .swapPanes: window?.swapPanes()
         case .viewAsList: browser?.viewMode = .list
         case .viewAsCards: browser?.viewMode = .cards

@@ -9,7 +9,16 @@ final class TerminalPanelModel {
         let folder: URL
     }
 
-    private(set) var session: Session?
+    private(set) var session: Session? {
+        didSet { if session == nil { isFocused = false } }
+    }
+
+    /// Whether the shell has keyboard focus; the panel reports it.
+    var isFocused = false
+    /// Bumped to move keyboard focus into the shell.
+    private(set) var focusRequest = 0
+
+    func requestFocus() { focusRequest += 1 }
 
     /// Asks the open shell to change to a folder; a new id each time, so asking again works.
     struct CDRequest: Equatable {
@@ -47,5 +56,24 @@ extension BrowserWindowModel {
     /// (a workspace with no single folder selected).
     func toggleTerminal() {
         terminal.toggle(in: active.developerFolder ?? FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Whether ⌥⌘↓ has somewhere to go: an open terminal that doesn't have focus yet.
+    var canFocusTerminal: Bool { terminal.session != nil && !terminal.isFocused }
+
+    /// Whether ⌥⌘↑ has somewhere to go: back up from the terminal to the files.
+    var canFocusFiles: Bool { terminal.isFocused }
+
+    /// ⌥⌘↓: from a pane (or the sidebar) into the terminal.
+    func focusTerminal() {
+        guard canFocusTerminal else { return }
+        terminal.requestFocus()
+    }
+
+    /// ⌥⌘↑: from the terminal back to the pane focus came from. The active pane stays the
+    /// active one while the terminal has focus, so that is the pane to return to.
+    func focusFiles() {
+        guard canFocusFiles else { return }
+        focusPane(at: activeIndex)
     }
 }

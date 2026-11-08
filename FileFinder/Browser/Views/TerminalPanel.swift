@@ -1,3 +1,4 @@
+import AppKit
 import GhosttyTerminal
 import SwiftUI
 
@@ -5,6 +6,8 @@ import SwiftUI
 struct TerminalPanel: View {
     let session: TerminalPanelModel.Session
     let panel: TerminalPanelModel
+    /// A focus key (⌥⌘↑, ⌥⌘←, ⌥⌘→) pressed in the shell; returns whether it was used.
+    var onFocusKey: (KeyAction) -> Bool = { _ in false }
     @StateObject private var terminal = TerminalViewState(controller: TerminalPanel.controller)
 
     /// One libghostty app for every panel. It reads the user's Ghostty config, so fonts, theme
@@ -48,6 +51,9 @@ struct TerminalPanel: View {
             Divider()
             TerminalSurfaceView(context: terminal)
         }
+        .background(FocusKeyMonitor(terminal: terminal, action: onFocusKey))
+        .onChange(of: terminal.isFocused) { _, focused in panel.isFocused = focused }
+        .onChange(of: panel.focusRequest) { terminal.requestFocus() }
         .onAppear {
             terminal.configuration = TerminalSurfaceOptions(
                 backend: .exec, workingDirectory: session.folder.path)
@@ -92,5 +98,53 @@ struct TerminalPanel: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
+    }
+}
+
+/// Catches the focus keys (⌥⌘↑, ⌥⌘←, ⌥⌘→) while the shell has focus. Ghostty binds ⌥⌘ with
+/// the arrows itself (to move between its splits) and would take them before the menu sees
+/// them; a local event monitor sees them first. A key with nowhere to go is left to Ghostty.
+private struct FocusKeyMonitor: NSViewRepresentable {
+    static let actions: [KeyAction] = [.focusFiles, .focusLeftPane, .focusRightPane]
+
+    let terminal: TerminalViewState
+    let action: (KeyAction) -> Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak view] event in
+            guard let window = event.window, window === view?.window,
+                  let shell = coordinator.terminal?.attachedPlatformView, window.firstResponder === shell,
+                  let pressed = Shortcut(
+                      keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,
+                      flags: event.modifierFlags),
+                  let action = Self.actions.first(where: { KeyBindingStore.shared.shortcut(for: $0) == pressed })
+            else { return event }
+            return coordinator.action(action) ? nil : event
+        }
+        update(coordinator)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        update(context.coordinator)
+    }
+
+    private func update(_ coordinator: Coordinator) {
+        coordinator.terminal = terminal
+        coordinator.action = action
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+    }
+
+    final class Coordinator {
+        var monitor: Any?
+        weak var terminal: TerminalViewState?
+        var action: (KeyAction) -> Bool = { _ in false }
     }
 }

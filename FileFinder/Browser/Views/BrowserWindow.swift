@@ -48,7 +48,13 @@ private struct BrowserWindowContent: View {
                     }
                 } bottom: {
                     window.terminal.session.map { session in
-                        TerminalPanel(session: session, panel: window.terminal).id(session.id)
+                        TerminalPanel(session: session, panel: window.terminal) { action in
+                            let runner = KeyActionRunner(browser: window.active, window: window)
+                            guard runner.canPerform(action) else { return false }
+                            runner.perform(action)
+                            return true
+                        }
+                        .id(session.id)
                     }
                 }
                 TransferBar(actions: window.actions)
