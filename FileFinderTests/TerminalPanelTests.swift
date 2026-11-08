@@ -300,6 +300,35 @@ struct TerminalFocusTests {
         #expect(window.active.focusRequest == before + 1)
     }
 
+    @Test("The focus border needs a second area: a second pane, the terminal, or both")
+    func focusBorderNeedsTwoAreas() {
+        let window = makeWindow()
+        #expect(window.focusBorder == nil)
+
+        window.toggleTerminal()
+        #expect(window.focusBorder == .pane(0))
+        window.toggleTerminal()
+
+        window.toggleSplit()
+        #expect(window.focusBorder == .pane(0))
+    }
+
+    @Test("The focus border follows focus: the active pane, the terminal, or nothing from the sidebar")
+    func focusBorderFollowsFocus() {
+        let window = makeWindow()
+        window.toggleSplit()
+        window.toggleTerminal()
+        window.focusPane(at: 1)
+        #expect(window.focusBorder == .pane(1))
+
+        window.terminal.isFocused = true
+        #expect(window.focusBorder == .terminal)
+
+        window.terminal.isFocused = false
+        window.isSidebarFocused = true
+        #expect(window.focusBorder == nil)
+    }
+
     @Test("The default keys are ⌥⌘↓ and ⌥⌘↑")
     func defaultKeys() {
         #expect(KeyAction.focusTerminal.defaultShortcut?.text == "cmd+alt+down")

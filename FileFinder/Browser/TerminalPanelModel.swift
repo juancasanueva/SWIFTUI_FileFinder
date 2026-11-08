@@ -58,6 +58,20 @@ extension BrowserWindowModel {
         terminal.toggle(in: active.developerFolder ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
+    /// The area a blue border marks as having keyboard focus.
+    enum FocusBorder: Equatable {
+        case pane(Int)
+        case terminal
+    }
+
+    /// Where the focus border goes: only once there is a second area (a second pane, the
+    /// terminal, or both), and nowhere while the sidebar has focus.
+    var focusBorder: FocusBorder? {
+        guard isSplit || terminal.session != nil else { return nil }
+        if terminal.isFocused { return .terminal }
+        return isSidebarFocused ? nil : .pane(activeIndex)
+    }
+
     /// Whether ⌥⌘↓ has somewhere to go: an open terminal that doesn't have focus yet.
     var canFocusTerminal: Bool { terminal.session != nil && !terminal.isFocused }
 

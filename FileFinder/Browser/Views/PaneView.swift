@@ -8,14 +8,14 @@ struct PaneView: View {
     let isActive: Bool
     /// Shown only when there are two panes, to mark the one keyboard commands act on.
     let showsActiveMarker: Bool
+    /// A blue border: this pane has keyboard focus and is not the only area in the window.
+    var hasFocusBorder = false
     let onActivate: () -> Void
 
     var body: some View {
         layout
-            .overlay(alignment: .top) {
-                if showsActiveMarker && isActive {
-                    Rectangle().fill(Color.accentColor).frame(height: 2)
-                }
+            .overlay {
+                if hasFocusBorder { FocusBorderView() }
             }
             .simultaneousGesture(TapGesture().onEnded(onActivate))
             // Table clicks don't reach SwiftUI gestures; selecting or navigating also activates.
@@ -175,5 +175,14 @@ private struct PaneBehavior: ViewModifier {
             } message: { message in
                 Text(message)
             }
+    }
+}
+
+/// The blue border around the pane or terminal that has keyboard focus.
+struct FocusBorderView: View {
+    var body: some View {
+        Rectangle()
+            .strokeBorder(Color.accentColor, lineWidth: 2)
+            .allowsHitTesting(false)
     }
 }

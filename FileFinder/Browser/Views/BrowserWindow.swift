@@ -44,6 +44,8 @@ private struct BrowserWindowContent: View {
                     PaneSplit(panes: window.panes) { pane in
                         PaneView(
                             model: pane, isActive: pane === active, showsActiveMarker: window.isSplit,
+                            hasFocusBorder: window.focusBorder == window.panes.firstIndex(where: { $0 === pane })
+                                .map(BrowserWindowModel.FocusBorder.pane),
                             onActivate: { window.activate(pane) })
                     }
                 } bottom: {
@@ -55,6 +57,7 @@ private struct BrowserWindowContent: View {
                             return true
                         }
                         .id(session.id)
+                        .overlay { if window.focusBorder == .terminal { FocusBorderView() } }
                     }
                 }
                 TransferBar(actions: window.actions)
