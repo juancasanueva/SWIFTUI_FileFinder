@@ -81,7 +81,7 @@ struct FileListView: View {
 
     private func nameCell(_ item: FileItem) -> some View {
         HStack(spacing: 6) {
-            FileIconView(item: item, side: model.iconSize.rowIcon)
+            FileIconView(item: item, side: model.iconSize.rowIcon, preview: true)
             if model.renamingURL == item.url {
                 RenameField(item: item) { name in Task { await model.commitRename(item, to: name) } } onCancel: { model.cancelRename() }
             } else {
