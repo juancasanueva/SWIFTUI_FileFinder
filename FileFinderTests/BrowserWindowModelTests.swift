@@ -21,6 +21,46 @@ struct BrowserWindowModelTests {
             restoring: state, defaultStart: start ?? dir.url, actions: actions, defaults: defaults)
     }
 
+    @Test("Empty Trash (⇧⌘⌫ or the sidebar) only asks; the Trash's contents are deleted once confirmed, and a pane showing it refreshes")
+    func emptyTrash() async throws {
+        let trash = try dir.folder(".Trash")
+        try dir.file(".Trash/old.txt", bytes: 3)
+        try dir.file(".Trash/folder/inner.txt", bytes: 3)
+        let actions = FileActions(
+            clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
+            trashFolder: trash)
+        let window = BrowserWindowModel(defaultStart: trash, actions: actions, defaults: defaults)
+        await window.active.reload()
+        #expect(window.active.items.count == 2)
+        let runner = KeyActionRunner(browser: window.active, window: window)
+
+        #expect(runner.canPerform(.emptyTrash))
+        runner.perform(.emptyTrash)
+        #expect(window.isConfirmingEmptyTrash)
+        #expect(FileManager.default.fileExists(atPath: trash.appending(path: "old.txt").path))
+
+        window.cancelEmptyTrash()
+        #expect(!window.isConfirmingEmptyTrash)
+        await window.confirmEmptyTrash()   // not asked anymore: nothing happens
+        #expect(FileManager.default.fileExists(atPath: trash.appending(path: "old.txt").path))
+
+        window.requestEmptyTrash()
+        await window.confirmEmptyTrash()
+
+        #expect(!window.isConfirmingEmptyTrash)
+        #expect(FileManager.default.fileExists(atPath: trash.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: trash.path).isEmpty)
+        #expect(window.active.items.isEmpty)
+        #expect(window.active.alertMessage == nil)
+    }
+
+    @Test("Empty Trash can't run while typing, so ⇧⌘⌫ stays with the text field")
+    func emptyTrashWhileTyping() {
+        let window = makeWindow()
+        window.active.isEditingPath = true
+        #expect(!KeyActionRunner(browser: window.active, window: window).canPerform(.emptyTrash))
+    }
+
     @Test("⌘D splits into two panes on the same folder, and again returns to one")
     func toggleSplit() throws {
         let window = makeWindow()

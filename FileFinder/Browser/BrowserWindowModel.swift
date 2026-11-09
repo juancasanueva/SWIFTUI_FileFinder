@@ -222,6 +222,41 @@ final class BrowserWindowModel {
 
     private(set) var namingRequest: NamingRequest?
 
+    // MARK: Empty Trash
+
+    /// Shows the "Empty the Trash?" dialog. Emptying can't be undone, so it always asks.
+    var isConfirmingEmptyTrash = false
+    /// Set only by `requestEmptyTrash`: dismissing the dialog clears `isConfirmingEmptyTrash`
+    /// before its button runs, so this is what lets `confirmEmptyTrash` act.
+    @ObservationIgnored private var emptyTrashRequested = false
+
+    /// ⇧⌘⌫ and the sidebar's Trash: ask first.
+    func requestEmptyTrash() {
+        emptyTrashRequested = true
+        isConfirmingEmptyTrash = true
+    }
+
+    func cancelEmptyTrash() {
+        emptyTrashRequested = false
+        isConfirmingEmptyTrash = false
+    }
+
+    /// Deletes the Trash's contents for good; only after `requestEmptyTrash`. Runs on this
+    /// window's queue, so its own Move to Trash undo steps are dropped with what they'd restore.
+    func confirmEmptyTrash() async {
+        guard emptyTrashRequested else { return }
+        cancelEmptyTrash()
+        do {
+            try await actions.emptyTrash(actions.trashFolder)
+        } catch {
+            active.alertMessage = error.localizedDescription
+        }
+        for pane in panes where pane.currentFolder.canonical == actions.trashFolder
+            || FileActions.isInTrash(pane.currentFolder, trash: actions.trashFolder) {
+            await pane.reload()
+        }
+    }
+
     /// ⌥⌘N.
     func requestNewWorkspace() { namingRequest = .create }
     func requestRename(_ id: Workspace.ID) { namingRequest = .rename(id) }

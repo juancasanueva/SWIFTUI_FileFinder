@@ -32,6 +32,8 @@ struct KeyActionRunner {
         case .openInTerminal, .openInExternalTerminal, .openInEditor: browser?.developerFolder != nil && !isTyping
         case .copyToOtherPane, .moveToOtherPane: (window?.isSplit ?? false) && hasSelection && !isTyping
         case .moveToTrash: hasSelection && !isTyping
+        // Only asks; the window's dialog does the emptying.
+        case .emptyTrash: window != nil && !isTyping
         // The menus never disable these: inside a text field they act on its text (see `BrowserCommands`).
         case .cut, .copy: hasSelection
         case .paste, .selectAll: browser != nil
@@ -72,6 +74,7 @@ struct KeyActionRunner {
         case .copyToOtherPane: Task { await window?.copyToOtherPane() }
         case .moveToOtherPane: Task { await window?.moveToOtherPane() }
         case .moveToTrash: Task { await browser?.trashSelection() }
+        case .emptyTrash: window?.requestEmptyTrash()
         case .cut: browser?.cutSelection()
         case .copy: browser?.copySelection()
         case .paste: Task { await browser?.paste() }
