@@ -66,7 +66,7 @@ private struct BrowserWindowContent: View {
         }
         .inspector(isPresented: $active.showPreview) {
             PreviewPane(model: active)
-                .inspectorColumnWidth(min: 220, ideal: 280, max: 420)
+                .inspectorColumnWidth(min: 220, ideal: 280, max: 840)
         }
         .navigationTitle(active.title)
         .toolbar { toolbar(active) }
