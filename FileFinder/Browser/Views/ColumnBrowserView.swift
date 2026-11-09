@@ -152,7 +152,7 @@ private struct ColumnRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            FileIconView(item: item, side: iconSide)
+            FileIconView(item: item, side: iconSide, preview: true)
             if let renameField {
                 renameField
             } else {
