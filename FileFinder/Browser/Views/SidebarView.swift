@@ -62,6 +62,9 @@ struct SidebarView: View {
             }
             Section("CleanUp") {
                 row(SidebarLocations.trash(home: home))
+                    .contextMenu {
+                        Button("Empty Trash…") { window.requestEmptyTrash() }
+                    }
                 Button { openWindow(id: SmartCleanWindow.id) } label: {
                     Label("Smart Clean", systemImage: "sparkles.rectangle.stack")
                 }

@@ -83,6 +83,15 @@ private struct BrowserWindowContent: View {
                 onSave: { name in Task { await window.finishNaming(name) } },
                 onCancel: window.cancelNaming)
         }
+        .alert(
+            "Empty the Trash?",
+            isPresented: Binding(get: { window.isConfirmingEmptyTrash }, set: { window.isConfirmingEmptyTrash = $0 })
+        ) {
+            Button("Cancel", role: .cancel) { window.cancelEmptyTrash() }
+            Button("Empty Trash", role: .destructive) { Task { await window.confirmEmptyTrash() } }
+        } message: {
+            Text("Items in the Trash are deleted for good. This can't be undone.")
+        }
         .overlay(alignment: .top) { paletteOverlay }
         .frame(minWidth: 720, minHeight: 420)
     }

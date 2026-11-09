@@ -36,6 +36,7 @@ struct BrowserCommands: Commands {
             Divider()
             // In a workspace ⌘⌫ only removes entries; nothing is ever trashed from there.
             item(.moveToTrash)
+            item(.emptyTrash, title: "Empty Trash…")
         }
 
         // Replacing the pasteboard group would break copy/paste inside text fields, so these

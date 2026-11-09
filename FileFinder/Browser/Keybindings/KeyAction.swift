@@ -5,7 +5,7 @@ import Foundation
 nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     // File
     case newFolder, newWorkspace, open, save, rename, compress, tidyFolder, tidyDownloads, smartClean
-    case openInTerminal, openInExternalTerminal, openInEditor, copyToOtherPane, moveToOtherPane, moveToTrash
+    case openInTerminal, openInExternalTerminal, openInEditor, copyToOtherPane, moveToOtherPane, moveToTrash, emptyTrash
     // Edit
     case cut, copy, paste, moveItemHere, selectAll
     // View
@@ -24,7 +24,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
     var menu: Menu {
         switch self {
         case .newFolder, .newWorkspace, .open, .save, .rename, .compress, .tidyFolder, .tidyDownloads, .smartClean,
-             .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash: .file
+             .openInTerminal, .openInExternalTerminal, .openInEditor, .copyToOtherPane, .moveToOtherPane, .moveToTrash, .emptyTrash: .file
         case .cut, .copy, .paste, .moveItemHere, .selectAll: .edit
         case .splitView, .focusLeftPane, .focusRightPane, .focusTerminal, .focusFiles, .swapPanes, .viewAsList, .viewAsCards, .viewAsColumns,
              .biggerIcons, .smallerIcons, .togglePreview, .toggleHiddenFiles: .view
@@ -50,6 +50,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .copyToOtherPane: "Copy to Other Pane"
         case .moveToOtherPane: "Move to Other Pane"
         case .moveToTrash: "Move to Trash"
+        case .emptyTrash: "Empty Trash"
         case .cut: "Cut"
         case .copy: "Copy"
         case .paste: "Paste"
@@ -96,6 +97,7 @@ nonisolated enum KeyAction: String, CaseIterable, Identifiable, Sendable {
         case .copyToOtherPane: "f5"
         case .moveToOtherPane: "f6"
         case .moveToTrash: "cmd+delete"
+        case .emptyTrash: "cmd+shift+delete"
         case .cut: "cmd+x"
         case .copy: "cmd+c"
         case .paste: "cmd+v"

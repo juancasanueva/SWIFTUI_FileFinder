@@ -43,6 +43,7 @@ The app updates itself through Sparkle: choose **FileFinder ▸ Check for Update
 | Escape | Cancel a rename or the typed path |
 | ⇧⌘N or F7 | New Folder |
 | F8 | Move to Trash (like ⌘⌫) |
+| ⇧⌘⌫ | Empty Trash: always asks first, and can't be undone (also in the File menu, ⌘K and by right-clicking Trash in the sidebar) |
 | F9 | New Markdown File (an empty `new.md`; also in the right-click menu on empty space) |
 | F10 | New Text File (an empty `new.txt`; also in the right-click menu on empty space) |
 | ⇧⌘. | Show or hide hidden files |
