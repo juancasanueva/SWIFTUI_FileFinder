@@ -60,7 +60,7 @@ struct SidebarView: View {
             Section("Locations") {
                 ForEach(locations) { row($0) }
             }
-            Section {
+            Section("CleanUp") {
                 row(SidebarLocations.trash(home: home))
                 Button { openWindow(id: SmartCleanWindow.id) } label: {
                     Label("Smart Clean", systemImage: "sparkles.rectangle.stack")
