@@ -465,6 +465,31 @@ struct BrowserWindowModelTests {
         #expect(window.panes[1].selection == [target.appending(path: "a.txt").canonical])
     }
 
+    @Test("An F6 whose every item is skipped leaves keyboard focus in the source pane")
+    func skippedMoveToOtherPaneKeepsFocus() async throws {
+        let source = try dir.file("left/a.txt", bytes: 1)
+        let target = try dir.folder("right")
+        let existing = try dir.file("right/a.txt", bytes: 2)
+        let window = makeWindow(start: source.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: target)
+        await window.panes[0].reload()
+        await window.panes[1].reload()
+        window.panes[0].selection = [source.canonical]
+        window.panes[1].selection = [existing.canonical]
+        let focusRequests = window.panes[1].focusRequest
+
+        let moving = Task { await window.moveToOtherPane() }
+        while window.panes[0].pendingConflict == nil { await Task.yield() }
+        window.panes[0].answerConflict(ConflictDecision(resolution: .skip))
+        await moving.value
+
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(window.activeIndex == 0)
+        #expect(window.panes[1].focusRequest == focusRequests)
+        #expect(window.panes[1].selection == [existing.canonical])
+    }
+
     @Test("A failed F6 leaves keyboard focus in the source pane")
     func failedMoveToOtherPaneKeepsFocus() async throws {
         let folder = try dir.folder("left/Box")

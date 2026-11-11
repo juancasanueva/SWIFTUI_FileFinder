@@ -211,7 +211,8 @@ final class BrowserWindowModel {
         await source.reload()
         await target.reload()
         // Select only once the target lists the new items: a list can't select rows it doesn't have yet.
-        guard let landed, target.currentFolder == folder else { return }
+        // Nothing landed (every item skipped): leave the target's selection and the keyboard alone.
+        guard let landed, !landed.isEmpty, target.currentFolder == folder else { return }
         target.selection = landed
         // The keyboard goes along with the files, so the arrow keys carry on from them.
         if let index = panes.firstIndex(where: { $0 === target }) { focusPane(at: index) }
