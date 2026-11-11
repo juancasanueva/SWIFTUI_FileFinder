@@ -428,6 +428,57 @@ struct BrowserWindowModelTests {
         #expect(window.panes[1].items.map(\.name) == ["a.txt"])
     }
 
+    @Test("F6 moves keyboard focus to the other pane, on the moved file")
+    func moveToOtherPaneFocusesMovedFile() async throws {
+        let source = try dir.file("left/a.txt")
+        let target = try dir.folder("right")
+        let window = makeWindow(start: source.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: target)
+        await window.panes[0].reload()
+        window.panes[0].selection = [source.canonical]
+        let focusRequests = window.panes[1].focusRequest
+
+        await window.moveToOtherPane()
+
+        #expect(window.activeIndex == 1)
+        #expect(window.panes[1].focusRequest == focusRequests + 1)
+        #expect(window.panes[1].selection == [target.appending(path: "a.txt").canonical])
+    }
+
+    @Test("F5 moves keyboard focus to the other pane, on the copied file")
+    func copyToOtherPaneFocusesCopiedFile() async throws {
+        let source = try dir.file("left/a.txt")
+        let target = try dir.folder("right")
+        let window = makeWindow(start: source.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: target)
+        await window.panes[0].reload()
+        window.panes[0].selection = [source.canonical]
+        let focusRequests = window.panes[1].focusRequest
+
+        await window.copyToOtherPane()
+
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(window.activeIndex == 1)
+        #expect(window.panes[1].focusRequest == focusRequests + 1)
+        #expect(window.panes[1].selection == [target.appending(path: "a.txt").canonical])
+    }
+
+    @Test("A failed F6 leaves keyboard focus in the source pane")
+    func failedMoveToOtherPaneKeepsFocus() async throws {
+        let folder = try dir.folder("left/Box")
+        let window = makeWindow(start: folder.deletingLastPathComponent())
+        window.toggleSplit()
+        window.panes[1].navigate(to: try dir.folder("left/Box/inner"))   // into itself
+        await window.panes[0].reload()
+        window.panes[0].selection = [folder.canonical]
+
+        await window.moveToOtherPane()
+
+        #expect(window.activeIndex == 0)
+    }
+
     @Test("F5 and F6 do nothing with a single pane")
     func transferNeedsTwoPanes() async throws {
         let source = try dir.file("a.txt")
