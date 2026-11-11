@@ -196,11 +196,12 @@ final class BrowserWindowModel {
             return
         }
         let folder = target.currentFolder
+        var landed: Set<URL>?
         do {
             let results = copying
                 ? try await actions.copy(urls, into: folder, resolveConflicts: source.conflictResolver)
                 : try await actions.move(urls, into: folder, resolveConflicts: source.conflictResolver)
-            if target.currentFolder == folder { target.selection = Set(results.map(\.canonical)) }
+            landed = Set(results.map(\.canonical))
         } catch is CancellationError {
             // Cancelled from the progress bar.
         } catch {
@@ -209,6 +210,12 @@ final class BrowserWindowModel {
         // Both panes changed: one lost items (on a move), the other gained them.
         await source.reload()
         await target.reload()
+        // Select only once the target lists the new items: a list can't select rows it doesn't have yet.
+        // Nothing landed (every item skipped): leave the target's selection and the keyboard alone.
+        guard let landed, !landed.isEmpty, target.currentFolder == folder else { return }
+        target.selection = landed
+        // The keyboard goes along with the files, so the arrow keys carry on from them.
+        if let index = panes.firstIndex(where: { $0 === target }) { focusPane(at: index) }
     }
 
     // MARK: Workspaces
