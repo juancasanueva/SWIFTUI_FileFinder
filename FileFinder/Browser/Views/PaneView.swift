@@ -21,6 +21,9 @@ struct PaneView: View {
             // Table clicks don't reach SwiftUI gestures; selecting or navigating also activates.
             .onChange(of: model.selection) { _, selection in if !selection.isEmpty { onActivate() } }
             .onChange(of: model.location) { onActivate() }
+            // The focus border follows the active pane, so on launch hand that pane the keyboard
+            // too. Deferred one turn so the file list is in the window when it asks for focus.
+            .task { if isActive { model.focusRequest += 1 } }
             .modifier(PaneBehavior(model: model))
     }
 
