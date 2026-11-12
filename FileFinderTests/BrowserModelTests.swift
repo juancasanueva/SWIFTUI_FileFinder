@@ -24,7 +24,7 @@ struct BrowserModelTests {
         measurer: (@Sendable (URL) async -> FolderStats?)? = nil,
         fileOpener: @escaping @MainActor (URL) -> Void = { _ in }
     ) -> BrowserModel {
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
         if let measurer {

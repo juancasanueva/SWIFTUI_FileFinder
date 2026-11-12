@@ -112,7 +112,7 @@ struct TransferQueueTests {
     }
 
     private func makeActions(copier: @escaping FileActions.Copier = slowCopier) -> FileActions {
-        FileActions(
+        FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             copier: copier)
     }
@@ -175,7 +175,7 @@ struct TransferQueueTests {
         try dir.file("a/Huge/x.bin", bytes: 10)
         let target = try dir.folder("b")
         let copierRan = Flag()
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             copier: { _, _, _, _ in copierRan.set() },
             measureSizes: { urls in

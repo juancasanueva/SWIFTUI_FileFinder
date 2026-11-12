@@ -14,7 +14,7 @@ struct ConflictResolutionTests {
         dir = try TemporaryDirectory()
         undoManager = UndoManager()
         undoManager.groupsByEvent = false
-        actions = FileActions(
+        actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
     }
@@ -200,7 +200,7 @@ struct ConflictResolutionTests {
         let undoManager = UndoManager()
         undoManager.groupsByEvent = false
         // A copier that finds the name taken by something that appeared meanwhile.
-        let racing = FileActions(
+        let racing = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             copier: { _, destination, _, _ in
                 try Data("raced".utf8).write(to: destination)
@@ -224,7 +224,7 @@ struct ConflictResolutionTests {
         let undoManager = UndoManager()
         undoManager.groupsByEvent = false
         // A real copy, but a folder appears at the destination just before it starts.
-        let racing = FileActions(
+        let racing = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             copier: { source, destination, progress, shouldCancel in
                 try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
@@ -273,7 +273,7 @@ struct ConflictPromptTests {
         let target = try dir.folder("b")
         let existing = try dir.file("b/x.txt", bytes: 2)
         let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         let model = BrowserModel(start: target, actions: actions, defaults: defaults)
         actions.copyToClipboard([source])
@@ -296,7 +296,7 @@ struct ConflictPromptTests {
         let target = try dir.folder("b")
         let existing = try dir.file("b/x.txt", bytes: 2)
         let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         let model = BrowserModel(start: target, actions: actions, defaults: defaults)
         actions.copyToClipboard([source])
@@ -318,7 +318,7 @@ struct ConflictPromptTests {
         let target = try dir.folder("b")
         let existing = try dir.file("b/x.txt", bytes: 2)
         let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         let model = BrowserModel(start: target, actions: actions, defaults: defaults)
         actions.copyToClipboard([source])
@@ -338,7 +338,7 @@ struct ConflictPromptTests {
     @Test("A replacing item keeps its own name's letter case")
     func replaceKeepsIncomingCase() async throws {
         let dir = try TemporaryDirectory()
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         let source = try dir.file("a/Foo.txt", bytes: 1)
         let target = try dir.folder("b")

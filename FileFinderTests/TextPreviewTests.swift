@@ -197,7 +197,7 @@ struct TextDocumentTests {
         let second = try dir.file("b.md")
         try write("A", to: first)
         try write("B", to: second)
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
         let model = BrowserModel(start: dir.url, actions: actions, defaults: defaults)
@@ -219,7 +219,7 @@ struct TextDocumentTests {
     }
 
     private func makePane() throws -> BrowserModel {
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = UndoManager()
         let defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))

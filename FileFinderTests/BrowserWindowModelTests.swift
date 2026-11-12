@@ -15,7 +15,7 @@ struct BrowserWindowModelTests {
     }
 
     private func makeWindow(start: URL? = nil, restoring state: WindowState? = nil) -> BrowserWindowModel {
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         return BrowserWindowModel(
             restoring: state, defaultStart: start ?? dir.url, actions: actions, defaults: defaults)
@@ -26,7 +26,7 @@ struct BrowserWindowModelTests {
         let trash = try dir.folder(".Trash")
         try dir.file(".Trash/old.txt", bytes: 3)
         try dir.file(".Trash/folder/inner.txt", bytes: 3)
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             trashFolder: trash)
         let window = BrowserWindowModel(defaultStart: trash, actions: actions, defaults: defaults)
@@ -330,7 +330,7 @@ struct BrowserWindowModelTests {
         let store = WorkspaceStore(fileURL: dir.url.appending(path: "store/workspaces.json"))
         let workspace = store.create(named: "W")
         let window = BrowserWindowModel(
-            defaultStart: dir.url, actions: FileActions(
+            defaultStart: dir.url, actions: FileActions.testing(
                 clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())")))),
             defaults: defaults, workspaces: store)
         await window.active.openWorkspace(workspace.id)
@@ -555,7 +555,7 @@ struct BrowserWindowModelTests {
     func cancelledCopyToOtherPaneIsQuiet() async throws {
         let source = try dir.file("left/a.bin", bytes: 1000)
         let target = try dir.folder("right")
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))),
             copier: { _, _, _, shouldCancel in
                 while !shouldCancel() { Thread.sleep(forTimeInterval: 0.01) }

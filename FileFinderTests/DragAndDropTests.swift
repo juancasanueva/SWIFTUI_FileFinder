@@ -13,7 +13,7 @@ struct DragAndDropTests {
     init() throws {
         dir = try TemporaryDirectory()
         defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
-        actions = FileActions(
+        actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         BrowserModel.endDrag()
         BrowserModel.dragPasteboard = NSPasteboard(name: .init("FileFinderTests-drag-\(UUID())"))

@@ -14,7 +14,7 @@ struct TidyTests {
         dir = try TemporaryDirectory()
         undoManager = UndoManager()
         undoManager.groupsByEvent = false
-        actions = FileActions(
+        actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
     }

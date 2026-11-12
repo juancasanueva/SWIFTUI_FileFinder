@@ -1228,7 +1228,7 @@ struct SlowScanner: SuggestionScanner {
 extension FileActions {
     /// FileActions whose Move to Trash fills `trash` (a test home's), never the real Trash.
     static func withTestTrash(_ trash: URL, clipboard: FileClipboard, walk: TrashWalk = .system) -> FileActions {
-        FileActions(clipboard: clipboard, trashFolder: trash, trasher: { url in
+        FileActions.testing(clipboard: clipboard, trashFolder: trash, trasher: { url in
             let destination = FileActions.uniqueDestination(for: url, in: trash, copyStyle: false)
             try FileManager.default.moveItem(at: url, to: destination)
             return destination

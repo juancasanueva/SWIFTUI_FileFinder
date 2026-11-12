@@ -15,7 +15,7 @@ struct WorkspaceBrowsingTests {
         dir = try TemporaryDirectory()
         defaults = try #require(UserDefaults(suiteName: "FileFinderTests-\(UUID())"))
         store = WorkspaceStore(fileURL: dir.url.appending(path: "store/workspaces.json"))
-        actions = FileActions(
+        actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
     }
 

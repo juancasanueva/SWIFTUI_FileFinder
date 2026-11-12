@@ -35,7 +35,7 @@ struct ColumnViewTests {
     }
 
     private func makeModel(start: URL? = nil) -> BrowserModel {
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         return BrowserModel(start: start ?? dir.url, actions: actions, defaults: defaults)
     }

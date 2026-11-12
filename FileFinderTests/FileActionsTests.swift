@@ -14,7 +14,7 @@ struct FileActionsTests {
         dir = try TemporaryDirectory()
         undoManager = UndoManager()
         undoManager.groupsByEvent = false
-        actions = FileActions(
+        actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         actions.undoManager = undoManager
     }
@@ -439,7 +439,7 @@ struct FileActionsTests {
     @Test("Files copied by another app (e.g. Finder) paste as copies")
     func pasteFromExternalCopy() async throws {
         let pasteboard = NSPasteboard(name: .init("FileFinderTests-\(UUID())"))
-        let actions = FileActions(clipboard: FileClipboard(pasteboard: pasteboard))
+        let actions = FileActions.testing(clipboard: FileClipboard(pasteboard: pasteboard))
         let source = try dir.file("a/x.txt")
         let target = try dir.folder("b")
 

@@ -246,7 +246,7 @@ struct CommandPaletteWindowTests {
     }
 
     private func makeWindow(workspaces: WorkspaceStore? = nil) -> BrowserWindowModel {
-        let actions = FileActions(
+        let actions = FileActions.testing(
             clipboard: FileClipboard(pasteboard: NSPasteboard(name: .init("FileFinderTests-\(UUID())"))))
         return BrowserWindowModel(
             defaultStart: dir.url, actions: actions, defaults: defaults,
