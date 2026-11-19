@@ -58,7 +58,9 @@ struct SidebarView: View {
                 addFavoriteButton
             }
             Section("Locations") {
-                ForEach(locations) { row($0) }
+                ForEach(locations) { item in
+                    if item.isEjectable { ejectableRow(item) } else { row(item) }
+                }
             }
             Section("CleanUp") {
                 row(SidebarLocations.trash(home: home))
@@ -167,6 +169,45 @@ struct SidebarView: View {
     private func row(_ item: SidebarItem) -> some View {
         Label(item.title, systemImage: item.systemImage)
             .tag(BrowserLocation.folder(item.url))
+    }
+
+    /// A pendrive, disk image or network share, with an eject button at the trailing edge as in Finder.
+    private func ejectableRow(_ item: SidebarItem) -> some View {
+        HStack {
+            Label(item.title, systemImage: item.systemImage)
+            Spacer(minLength: 4)
+            Button { eject(item) } label: {
+                Image(systemName: "eject.fill")
+                    .foregroundStyle(.secondary)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Eject \u{201C}\(item.title)\u{201D}")
+            .accessibilityLabel("Eject \(item.title)")
+        }
+        .tag(BrowserLocation.folder(item.url))
+        .contextMenu {
+            Button("Eject \u{201C}\(item.title)\u{201D}") { eject(item) }
+        }
+    }
+
+    /// Ejects off the main actor (it waits for the disk), then moves panes that showed the volume home.
+    private func eject(_ item: SidebarItem) {
+        Task {
+            do {
+                try await Self.unmountAndEject(item.url)
+                for pane in window.panes where !pane.isShowingWorkspace
+                    && SidebarLocations.folder(pane.currentFolder, isOn: item.url) {
+                    pane.navigate(to: home)
+                }
+            } catch {
+                model.alertMessage = "\u{201C}\(item.title)\u{201D} couldn't be ejected: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    @concurrent private nonisolated static func unmountAndEject(_ volume: URL) async throws {
+        try NSWorkspace.shared.unmountAndEjectDevice(at: volume)
     }
 
     private func workspaceRow(_ workspace: Workspace, number: Int) -> some View {

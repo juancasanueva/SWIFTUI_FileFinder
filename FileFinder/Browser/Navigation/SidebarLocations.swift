@@ -4,12 +4,15 @@ nonisolated struct SidebarItem: Identifiable, Hashable, Sendable {
     let title: String
     let systemImage: String
     let url: URL
+    /// A pendrive, disk image or network share: shown with an eject button, as in Finder.
+    let isEjectable: Bool
     var id: URL { url }
 
-    init(title: String, systemImage: String, url: URL) {
+    init(title: String, systemImage: String, url: URL, isEjectable: Bool = false) {
         self.title = title
         self.systemImage = systemImage
         self.url = url.canonical
+        self.isEjectable = isEjectable
     }
 }
 
@@ -25,7 +28,9 @@ nonisolated enum SidebarLocations {
         ]
     }
 
-    static func locations(home: URL, volumes: [URL]) -> [SidebarItem] {
+    static func locations(
+        home: URL, volumes: [URL], isEjectable: (URL) -> Bool = SidebarLocations.isEjectable
+    ) -> [SidebarItem] {
         var items: [SidebarItem] = []
         let fileManager = FileManager.default
 
@@ -53,7 +58,8 @@ nonisolated enum SidebarLocations {
         for volume in volumes where volume.path != "/" {
             let name = (try? volume.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName)
                 ?? volume.lastPathComponent
-            items.append(SidebarItem(title: name, systemImage: "externaldrive", url: volume))
+            items.append(SidebarItem(
+                title: name, systemImage: "externaldrive", url: volume, isEjectable: isEjectable(volume)))
         }
         return items
     }
@@ -65,6 +71,24 @@ nonisolated enum SidebarLocations {
     static func mountedVolumes() -> [URL] {
         FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeLocalizedNameKey], options: [.skipHiddenVolumes]) ?? []
+    }
+
+    /// External and removable drives, disk images and network shares, as Finder decides. External
+    /// USB SSDs report neither ejectable nor removable, only that they sit off the internal bus.
+    static func isEjectable(_ volume: URL) -> Bool {
+        guard volume.path != "/", let values = try? volume.resourceValues(
+            forKeys: [.volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsInternalKey, .volumeIsLocalKey])
+        else { return false }
+        return values.volumeIsEjectable == true || values.volumeIsRemovable == true
+            || values.volumeIsInternal == false || values.volumeIsLocal == false
+    }
+
+    /// Whether `folder` is `volume` itself or somewhere inside it.
+    static func folder(_ folder: URL, isOn volume: URL) -> Bool {
+        let folderPath = folder.standardizedFileURL.path(percentEncoded: false)
+        var volumePath = volume.standardizedFileURL.path(percentEncoded: false)
+        if !volumePath.hasSuffix("/") { volumePath += "/" }
+        return (folderPath + "/").hasPrefix(volumePath)
     }
 
     /// "GoogleDrive-me@example.com" → "Google Drive", "OneDrive-Personal" → "One Drive".
