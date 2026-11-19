@@ -103,6 +103,28 @@ struct SidebarLocationsTests {
         #expect(withCloud.contains { $0.url.path == "/" })
     }
 
+    @Test("Only ejectable volumes get an eject button; home and the boot disk never do")
+    func ejectableVolumes() throws {
+        let home = try TemporaryDirectory()
+        let pendrive = try home.folder("Volumes/PENDRIVE")
+        let backup = try home.folder("Volumes/Backup")
+        let items = SidebarLocations.locations(
+            home: home.url, volumes: [pendrive, backup], isEjectable: { $0.lastPathComponent == "PENDRIVE" })
+
+        #expect(items.filter(\.isEjectable).map(\.url) == [pendrive.canonical])
+        #expect(items.first { $0.url.path == "/" }?.isEjectable == false)
+        #expect(items.first { $0.url == home.url.canonical }?.isEjectable == false)
+    }
+
+    @Test("A folder is on a volume when it is the volume or inside it, not a sibling with a longer name")
+    func folderOnVolume() {
+        let volume = URL(filePath: "/Volumes/USB", directoryHint: .isDirectory)
+        #expect(SidebarLocations.folder(volume, isOn: volume))
+        #expect(SidebarLocations.folder(URL(filePath: "/Volumes/USB/Photos/2026"), isOn: volume))
+        #expect(!SidebarLocations.folder(URL(filePath: "/Volumes/USB2"), isOn: volume))
+        #expect(!SidebarLocations.folder(URL(filePath: "/Users"), isOn: volume))
+    }
+
     @Test("Trash points at the user's trash folder")
     func trash() throws {
         let home = try TemporaryDirectory()
